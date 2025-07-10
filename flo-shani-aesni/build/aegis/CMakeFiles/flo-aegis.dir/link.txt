@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../lib/libflo-aegis.a CMakeFiles/flo-aegis.dir/aegis_opt.c.o CMakeFiles/flo-aegis.dir/aegis_ref.c.o
+/usr/bin/ranlib ../lib/libflo-aegis.a

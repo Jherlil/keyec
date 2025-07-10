@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../lib/libflo-cpuid.a CMakeFiles/flo-cpuid.dir/flo-cpuid.c.o
+/usr/bin/ranlib ../lib/libflo-cpuid.a

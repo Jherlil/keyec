@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../lib/libflo-aesni.a CMakeFiles/flo-aesni.dir/aesni.c.o
+/usr/bin/ranlib ../lib/libflo-aesni.a

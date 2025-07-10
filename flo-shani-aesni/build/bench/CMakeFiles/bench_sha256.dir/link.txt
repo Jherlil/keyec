@@ -1,0 +1,1 @@
+/usr/bin/cc -rdynamic CMakeFiles/bench_sha256.dir/bench_sha256.c.o -o ../bin/bench_sha256  ../lib/libflo-shani.a ../lib/libflo-cpuid.a ../lib/libflo-prng.a -lcrypto 
