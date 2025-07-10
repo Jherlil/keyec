@@ -231,10 +231,10 @@ void ctx_precompute_gpoints(ctx_t *ctx) {
 
   fe t; // precalc stride point
   fe_modn_add_stride(t, FE_ZERO, ctx->stride_k, GROUP_INV_SIZE);
-  ec_jacobi_mulrdc(&ctx->stride_p, &G1, t); // G * (GROUP_INV_SIZE * gs)
+  ec_mul_gen(&ctx->stride_p, t); // G * (GROUP_INV_SIZE * gs)
 
   pe g1, g2;
-  ec_jacobi_mulrdc(&g1, &G1, ctx->stride_k);
+  ec_mul_gen(&g1, ctx->stride_k);
   ec_jacobi_dblrdc(&g2, &g1);
 
   size_t hsize = GROUP_INV_SIZE / 2;
@@ -255,7 +255,7 @@ void ctx_precompute_gpoints(ctx_t *ctx) {
 
 void pk_verify_hash(const fe pk, const h160_t hash, bool c, size_t endo) {
   pe point;
-  ec_jacobi_mulrdc(&point, &G1, pk);
+  ec_mul_gen(&point, pk);
 
   h160_t h;
   c ? addr33(h, &point) : addr65(h, &point);
@@ -389,7 +389,7 @@ void batch_add(ctx_t *ctx, const fe pk, const size_t iterations) {
 
   // set start point to center of the group
   fe_modn_add_stride(ss, pk, ctx->stride_k, hsize);
-  ec_jacobi_mulrdc(&GStart, &G1, ss); // G * (pk + hsize * gs)
+  ec_mul_gen(&GStart, ss); // G * (pk + hsize * gs)
 
   // group addition with single inversion (with stride support)
   // structure: K-N/2 .. K-2 K-1 [K] K+1 K+2 .. K+N/2-1 (last K dropped to have odd size)
@@ -542,7 +542,6 @@ void *cmd_mul_worker(void *arg) {
   ctx_t *ctx = (ctx_t *)arg;
 
   // sha256 routine
-  u8 msg[(MAX_LINE_SIZE + 63 + 9) / 64 * 64] = {0}; // 9 = 1 byte 0x80 + 8 byte bitlen
   u32 res[8] = {0};
 
   fe pk[GROUP_INV_SIZE];
@@ -560,15 +559,8 @@ void *cmd_mul_worker(void *arg) {
     } else {
       for (size_t i = 0; i < job->count; ++i) {
         size_t len = strlen(job->lines[i]);
-        size_t msg_size = (len + 63 + 9) / 64 * 64;
-
         // calculate sha256 hash
-        size_t bitlen = len * 8;
-        memcpy(msg, job->lines[i], len);
-        memset(msg + len, 0, msg_size - len);
-        msg[len] = 0x80;
-        for (int j = 0; j < 8; j++) msg[msg_size - 1 - j] = bitlen >> (j * 8);
-        sha256_final(res, (u8 *)msg, msg_size);
+        sha256_final(res, (u8 *)job->lines[i], len);
 
         // debug log (do with `-t 1`)
         // printf("\n%zu %s\n", len, job->lines[i]);
@@ -583,8 +575,7 @@ void *cmd_mul_worker(void *arg) {
     }
 
     // compute public keys in batch
-    for (size_t i = 0; i < job->count; ++i) ec_gtable_mul(&cp[i], pk[i]);
-    ec_jacobi_grprdc(cp, job->count);
+    for (size_t i = 0; i < job->count; ++i) ec_mul_gen(&cp[i], pk[i]);
 
     check_found_mul(ctx, pk, cp, job->count);
     ctx_update(ctx, job->count);
@@ -595,7 +586,9 @@ void *cmd_mul_worker(void *arg) {
 }
 
 void cmd_mul(ctx_t *ctx) {
+#ifndef USE_SECP256K1
   ec_gtable_init();
+#endif
 
   for (size_t i = 0; i < ctx->threads_count; ++i) {
     pthread_create(&ctx->threads[i], NULL, cmd_mul_worker, ctx);
@@ -906,6 +899,10 @@ void init(ctx_t *ctx, args_t *args) {
     ctx->check_addr33 = true; // default to addr33
   }
 
+#ifdef USE_SECP256K1
+  secp_init();
+#endif
+
   ctx->use_endo = args_bool(args, "-endo");
   if (ctx->cmd == CMD_MUL) ctx->use_endo = false; // no endo for mul command
 
@@ -988,6 +985,10 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_ADD) cmd_add(&ctx);
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
+
+#ifdef USE_SECP256K1
+  secp_cleanup();
+#endif
 
   return 0;
 }

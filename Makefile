@@ -5,19 +5,22 @@ NASM = nasm
 CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
 
 ifeq ($(shell uname -m),x86_64)
-        CC_FLAGS += -march=native -mavx2 -pthread -lpthread
+CC_FLAGS += -march=native -mavx2 -pthread -lpthread
 endif
 
 default: build
 
 clean:
-	@rm -rf ecloop bench main a.out *.profraw *.profdata xoshiro256ss-avx/*.o
+	@rm -rf ecloop bench main a.out *.profraw *.profdata xoshiro256ss-avx/*.o secp256k1.o
 
 build:
 	$(MAKE) clean
 	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o
-	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
+	$(CC) -c -O3 -I./secp256k1_fast_unsafe -I./secp256k1_fast_unsafe/include -I./secp256k1_fast_unsafe/src -include secp256k1_fast_unsafe/src/basic-config.h -DUSE_BASIC_CONFIG -DSECP256K1_BUILD secp256k1_fast_unsafe/src/secp256k1.c -o secp256k1.o
+	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/flo-shani.c -o flo-shani.o
+	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/sha256_vectorized.c -o sha256_vectorized.o
+	$(CC) $(CC_FLAGS) -DUSE_SECP256K1 -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
+		main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o secp256k1.o flo-shani.o sha256_vectorized.o -o ecloop
 
 xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
 	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
@@ -37,12 +40,12 @@ mul: build
 	cat data/btc-bw-priv | ./ecloop mul -f data/btc-bw-hash -a cu -q -o /dev/null
 
 rnd: build
-	./ecloop rnd -f data/btc-puzzles-hash -r 800000000000000000:ffffffffffffffffff -d 0:32
+	./ecloop rnd -f data/btc-puzzles-hash -r 800000000000000000:ffffffffffffffff -d 0:32
 
 blf: build
 	@rm -rf /tmp/test.blf
 	@printf "\n> "
-	cat data/btc-puzzles-hash | ./ecloop blf-gen -n 32768 -o /tmp/test.blf
+	cat data/btc-bw-hash | ./ecloop blf-gen -n 32768 -o /tmp/test.blf
 	@printf "\n> "
 	cat data/btc-bw-hash | ./ecloop blf-gen -n 32768 -o /tmp/test.blf
 	@printf "\n> "
@@ -52,10 +55,9 @@ blf: build
 
 verify: build
 	./ecloop mult-verify
-
 # -----------------------------------------------------------------------------
 # https://btcpuzzle.info/puzzle
-
+	
 range_28 = 8000000:fffffff
 range_32 = 80000000:ffffffff
 range_33 = 100000000:1ffffffff
@@ -63,7 +65,7 @@ range_34 = 200000000:3ffffffff
 range_35 = 400000000:7ffffffff
 range_36 = 800000000:fffffffff
 range_71 = 400000000000000000:7fffffffffffffffff
-range_72 = 800000000000000000:ffffffffffffffffff
+range_72 = 800000000000000000:ffffffffffffffff
 range_73 = 1000000000000000000:1ffffffffffffffffff
 range_74 = 2000000000000000000:3ffffffffffffffffff
 range_76 = 8000000000000000000:fffffffffffffffffff
@@ -71,9 +73,9 @@ range_77 = 10000000000000000000:1fffffffffffffffffff
 range_78 = 20000000000000000000:3fffffffffffffffffff
 range_79 = 40000000000000000000:7fffffffffffffffffff
 _RANGES_ = $(foreach r,$(filter range_%,$(.VARIABLES)),$(patsubst range_%,%,$r))
-
+	
 puzzle: build
-	@$(if $(filter $(_RANGES_),$(n)),,$(error "Invalid range $(n)"))
+	@$(if $(filter $(_RANGES_),$(n)),$(error "Invalid range $(n)"))
 	./ecloop rnd -f data/btc-puzzles-hash -d 0:32 -r $(range_$(n)) -o ./found_$(n).txt
 
 %:
@@ -89,7 +91,7 @@ remote:
 	@ssh -tt $(host) 'clear; $(CC) --version'
 	ssh -tt $(host) 'cd /tmp/ecloop; make $(cmd) CC=$(CC)'
 
-bench-compare:
+	bench-compare:
 	@ssh -tt $(host) " \
 	cd /tmp; rm -rf ecloop keyhunt; \
 	cd /tmp && git clone https://github.com/vladkens/ecloop.git && cd ecloop && make CC=clang; \
@@ -98,11 +100,11 @@ bench-compare:
 	echo '--------------------------------------------------'; \
 	cd /tmp; \
 	echo '--- t=1 (keyhunt)'; \
-	time ./keyhunt/keyhunt -m rmd160 -f ecloop/data/btc-bw-hash -r 8000:fffffff -t 1 -n 16777216; \
-	echo '--- t=1 (ecloop)'; \
-	time ./ecloop/ecloop add -f ecloop/data/btc-bw-hash -t 1 -r 8000:fffffff; \
-	echo '--- t=4 (keyhunt)'; \
-	time ./keyhunt/keyhunt -m rmd160 -f ecloop/data/btc-bw-hash -r 8000:fffffff -t 4 -n 16777216; \
-	echo '--- t=4 (ecloop)'; \
-	time ./ecloop/ecloop add -f ecloop/data/btc-bw-hash -t 4 -r 8000:fffffff; \
-	"
+time ./keyhunt/keyhunt -m rmd160 -f ecloop/data/btc-bw-hash -r 8000:fffffff -t 1 -n 16777216; \
+echo '--- t=1 (ecloop)'; \
+time ./ecloop/ecloop add -f ecloop/data/btc-bw-hash -t 1 -r 8000:fffffff; \
+echo '--- t=4 (keyhunt)'; \
+time ./keyhunt/keyhunt -m rmd160 -f ecloop/data/btc-bw-hash -r 8000:fffffff -t 4 -n 16777216; \
+echo '--- t=4 (ecloop)'; \
+time ./ecloop/ecloop add -f ecloop/data/btc-bw-hash -t 4 -r 8000:fffffff; \
+"
