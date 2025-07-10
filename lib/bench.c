@@ -50,7 +50,7 @@ void run_bench() {
   assert(fe_cmp(g.x, G1.x) != 0);
 
   // ec multiplication
-  srand(42);
+  prng_seed(42);
   size_t numSize = 1024 * 16;
   fe numbers[numSize];
   for (size_t i = 0; i < numSize; ++i) fe_prand(numbers[i]);
@@ -112,7 +112,7 @@ void run_bench() {
 }
 
 void run_bench_gtable() {
-  srand(42);
+  prng_seed(42);
   size_t numSize = 1024 * 16;
   fe numbers[numSize];
   for (size_t i = 0; i < numSize; ++i) fe_prand(numbers[i]);

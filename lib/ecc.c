@@ -78,6 +78,15 @@ int fe_cmp(const fe a, const fe b) {
   return 0;
 }
 
+void fe_div_u64(fe r, const fe a, u64 d) {
+  __uint128_t rem = 0;
+  for (int i = 3; i >= 0; --i) {
+    __uint128_t cur = (rem << 64) | a[i];
+    r[i] = (u64)(cur / d);
+    rem = cur % d;
+  }
+}
+
 void fe_from_hex(fe r, const char *hex) {
   // load dynamic length hex string into 256bit integer (from right to left)
   fe_set64(r, 0);

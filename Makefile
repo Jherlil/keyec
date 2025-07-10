@@ -1,19 +1,24 @@
 .PHONY: default clean build bench fmt add mul rnd blf remote
 
 CC = cc
-CC_FLAGS ?= -O3 -ffast-math -Wall -Wextra
+NASM = nasm
+CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
 
 ifeq ($(shell uname -m),x86_64)
-	CC_FLAGS += -march=native -pthread -lpthread
+        CC_FLAGS += -march=native -mavx2 -pthread -lpthread
 endif
 
 default: build
 
 clean:
-	@rm -rf ecloop bench main a.out *.profraw *.profdata
+	@rm -rf ecloop bench main a.out *.profraw *.profdata xoshiro256ss-avx/*.o
 
-build: clean
-	$(CC) $(CC_FLAGS) main.c -o ecloop
+build: clean xoshiro256ss-avx/xoshiro256ss.o
+	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
+	main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
+
+xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
+	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
 
 bench: build
 	./ecloop bench

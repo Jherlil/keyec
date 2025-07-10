@@ -68,6 +68,12 @@ typedef struct ctx_t {
   u32 ord_size; // size (span) in range to search
 } ctx_t;
 
+typedef struct add_job_t {
+  ctx_t *ctx;
+  fe start;
+  fe end;
+} add_job_t;
+
 void load_filter(ctx_t *ctx, const char *filepath) {
   if (!filepath) {
     fprintf(stderr, "missing filter file\n");
@@ -291,9 +297,22 @@ void check_found_add(ctx_t *ctx, fe const start_pk, const pe *points) {
   for (size_t i = 0; i < GROUP_INV_SIZE; i += HASH_BATCH_SIZE) {
     if (ctx->check_addr33) addr33_batch(hs33, points + i, HASH_BATCH_SIZE);
     if (ctx->check_addr65) addr65_batch(hs65, points + i, HASH_BATCH_SIZE);
-    for (size_t j = 0; j < HASH_BATCH_SIZE; ++j) {
-      if (ctx->check_addr33) check_hash(ctx, true, hs33[j], start_pk, i + j, 0);
-      if (ctx->check_addr65) check_hash(ctx, false, hs65[j], start_pk, i + j, 0);
+    for (size_t j = 0; j < HASH_BATCH_SIZE; j += 8) {
+      uint8_t mask33[8] = {1,1,1,1,1,1,1,1};
+      uint8_t mask65[8] = {1,1,1,1,1,1,1,1};
+      size_t remain = MIN(8ul, HASH_BATCH_SIZE - j);
+      if (ctx->blf.bits != NULL) {
+        if (ctx->check_addr33)
+          blf_has8(mask33, &ctx->blf, (const h160_t *)(hs33 + j));
+        if (ctx->check_addr65)
+          blf_has8(mask65, &ctx->blf, (const h160_t *)(hs65 + j));
+      }
+      for (size_t k = 0; k < remain; ++k) {
+        if (ctx->check_addr33 && (ctx->blf.bits == NULL || mask33[k]))
+          check_hash(ctx, true, hs33[j + k], start_pk, i + j + k, 0);
+        if (ctx->check_addr65 && (ctx->blf.bits == NULL || mask65[k]))
+          check_hash(ctx, false, hs65[j + k], start_pk, i + j + k, 0);
+      }
     }
   }
 
@@ -333,12 +352,23 @@ void check_found_add(ctx_t *ctx, fe const start_pk, const pe *points) {
       if (ctx->check_addr33) addr33_batch(hs33, endos + i, HASH_BATCH_SIZE);
       if (ctx->check_addr65) addr65_batch(hs65, endos + i, HASH_BATCH_SIZE);
 
-      for (size_t j = 0; j < HASH_BATCH_SIZE; ++j) {
-        // if (ci >= (GROUP_INV_SIZE * 5)) break;
-        // printf(">> %6zu | %6zu ~ %zu\n", ci, ci / 5, (ci % 5) + 1);
-        if (ctx->check_addr33) check_hash(ctx, true, hs33[j], start_pk, ci / 5, (ci % 5) + 1);
-        if (ctx->check_addr65) check_hash(ctx, false, hs65[j], start_pk, ci / 5, (ci % 5) + 1);
-        ci += 1;
+      for (size_t j = 0; j < HASH_BATCH_SIZE; j += 8) {
+        uint8_t mask33[8] = {1,1,1,1,1,1,1,1};
+        uint8_t mask65[8] = {1,1,1,1,1,1,1,1};
+        size_t remain = MIN(8ul, HASH_BATCH_SIZE - j);
+        if (ctx->blf.bits != NULL) {
+          if (ctx->check_addr33)
+            blf_has8(mask33, &ctx->blf, (const h160_t *)(hs33 + j));
+          if (ctx->check_addr65)
+            blf_has8(mask65, &ctx->blf, (const h160_t *)(hs65 + j));
+        }
+        for (size_t k = 0; k < remain; ++k) {
+          if (ctx->check_addr33 && (ctx->blf.bits == NULL || mask33[k]))
+            check_hash(ctx, true, hs33[j + k], start_pk, ci / 5, (ci % 5) + 1);
+          if (ctx->check_addr65 && (ctx->blf.bits == NULL || mask65[k]))
+            check_hash(ctx, false, hs65[j + k], start_pk, ci / 5, (ci % 5) + 1);
+          ci += 1;
+        }
       }
     }
   }
@@ -403,10 +433,15 @@ void batch_add(ctx_t *ctx, const fe pk, const size_t iterations) {
 }
 
 void *cmd_add_worker(void *arg) {
-  ctx_t *ctx = (ctx_t *)arg;
+  add_job_t *job = (add_job_t *)arg;
+  ctx_t *ctx = job->ctx;
 
-  fe initial_r; // keep initial range start to check overflow
-  fe_clone(initial_r, ctx->range_s);
+  fe current;
+  fe_clone(current, job->start);
+  fe end;
+  fe_clone(end, job->end);
+  fe initial_r;
+  fe_clone(initial_r, current);
 
   // job_size multiply by 2^offset (iterate over desired digit order)
   // for example: 3013 3023 .. 30X3 .. 3093 3103 3113
@@ -416,16 +451,13 @@ void *cmd_add_worker(void *arg) {
 
   fe pk;
   while (true) {
-    pthread_mutex_lock(&ctx->lock);
-    bool is_overflow = fe_cmp(ctx->range_s, initial_r) < 0;
-    if (fe_cmp(ctx->range_s, ctx->range_e) >= 0 || is_overflow) {
-      pthread_mutex_unlock(&ctx->lock);
+    bool is_overflow = fe_cmp(current, initial_r) < 0;
+    if (fe_cmp(current, end) >= 0 || is_overflow) {
       break;
     }
 
-    fe_clone(pk, ctx->range_s);
-    fe_modn_add(ctx->range_s, ctx->range_s, inc);
-    pthread_mutex_unlock(&ctx->lock);
+    fe_clone(pk, current);
+    fe_modn_add(current, current, inc);
 
     batch_add(ctx, pk, ctx->job_size);
     ctx_update(ctx, ctx->use_endo ? ctx->job_size * 6 : ctx->job_size);
@@ -442,13 +474,24 @@ void cmd_add(ctx_t *ctx) {
   ctx->job_size = fe_cmp64(range_size, MAX_JOB_SIZE) < 0 ? range_size[0] : MAX_JOB_SIZE;
   ctx->ts_started = tsnow(); // actual start time
 
+  fe chunk;
+  fe_div_u64(chunk, range_size, ctx->threads_count);
+
+  add_job_t *jobs = malloc(ctx->threads_count * sizeof(add_job_t));
   for (size_t i = 0; i < ctx->threads_count; ++i) {
-    pthread_create(&ctx->threads[i], NULL, cmd_add_worker, ctx);
+    jobs[i].ctx = ctx;
+    fe_modn_add_stride(jobs[i].start, ctx->range_s, chunk, i);
+    if (i == ctx->threads_count - 1)
+      fe_clone(jobs[i].end, ctx->range_e);
+    else
+      fe_modn_add_stride(jobs[i].end, ctx->range_s, chunk, i + 1);
+    pthread_create(&ctx->threads[i], NULL, cmd_add_worker, &jobs[i]);
   }
 
   for (size_t i = 0; i < ctx->threads_count; ++i) {
     pthread_join(ctx->threads[i], NULL);
   }
+  free(jobs);
 
   ctx_finish(ctx);
 }
@@ -464,15 +507,25 @@ void check_found_mul(ctx_t *ctx, const fe *pk, const pe *cp, size_t cnt) {
     if (ctx->check_addr33) addr33_batch(hs33, cp + i, batch_size);
     if (ctx->check_addr65) addr65_batch(hs65, cp + i, batch_size);
 
-    for (size_t j = 0; j < HASH_BATCH_SIZE; ++j) {
-      if (ctx->check_addr33 && ctx_check_hash(ctx, hs33[j])) {
-        // pk_verify_hash(pk[i + j], hs33[j], true, 0);
-        ctx_write_found(ctx, "addr33", hs33[j], pk[i + j]);
+    for (size_t j = 0; j < HASH_BATCH_SIZE; j += 8) {
+      uint8_t mask33[8] = {1,1,1,1,1,1,1,1};
+      uint8_t mask65[8] = {1,1,1,1,1,1,1,1};
+      size_t remain = MIN(8ul, HASH_BATCH_SIZE - j);
+      if (ctx->blf.bits != NULL) {
+        if (ctx->check_addr33)
+          blf_has8(mask33, &ctx->blf, (const h160_t *)(hs33 + j));
+        if (ctx->check_addr65)
+          blf_has8(mask65, &ctx->blf, (const h160_t *)(hs65 + j));
       }
-
-      if (ctx->check_addr65 && ctx_check_hash(ctx, hs65[j])) {
-        // pk_verify_hash(pk[i + j], hs65[j], false, 0);
-        ctx_write_found(ctx, "addr65", hs65[j], pk[i + j]);
+      for (size_t k = 0; k < remain; ++k) {
+        if (ctx->check_addr33 && (ctx->blf.bits == NULL || mask33[k])) {
+          if (ctx_check_hash(ctx, hs33[j + k]))
+            ctx_write_found(ctx, "addr33", hs33[j + k], pk[i + j + k]);
+        }
+        if (ctx->check_addr65 && (ctx->blf.bits == NULL || mask65[k])) {
+          if (ctx_check_hash(ctx, hs65[j + k]))
+            ctx_write_found(ctx, "addr65", hs65[j + k], pk[i + j + k]);
+        }
       }
     }
   }
@@ -618,7 +671,9 @@ void print_range_mask(fe range_s, u32 bits_size, u32 offset, bool use_color) {
 
 void cmd_rnd(ctx_t *ctx) {
   ctx->ord_offs = MIN(ctx->ord_offs, 255 - ctx->ord_size);
-  printf("[RANDOM MODE] offs: %d ~ bits: %d\n\n", ctx->ord_offs, ctx->ord_size);
+  if (!ctx->quiet)
+    printf("[RANDOM MODE] offs: %d ~ bits: %d\n\n", ctx->ord_offs,
+           ctx->ord_size);
 
   ctx_precompute_gpoints(ctx);
   ctx->job_size = MAX_JOB_SIZE;
@@ -635,25 +690,44 @@ void cmd_rnd(ctx_t *ctx) {
     s_time = tsnow();
 
     gen_random_range(ctx, range_s, range_e);
-    print_range_mask(ctx->range_s, ctx->ord_size, ctx->ord_offs, ctx->use_color);
-    print_range_mask(ctx->range_e, ctx->ord_size, ctx->ord_offs, ctx->use_color);
+    if (!ctx->quiet) {
+      print_range_mask(ctx->range_s, ctx->ord_size, ctx->ord_offs,
+                       ctx->use_color);
+      print_range_mask(ctx->range_e, ctx->ord_size, ctx->ord_offs,
+                       ctx->use_color);
+    }
     ctx_print_status(ctx);
 
     // if full range is used, skip break after first iteration
     bool is_full = fe_cmp(ctx->range_s, range_s) == 0 && fe_cmp(ctx->range_e, range_e) == 0;
 
+    fe range_size;
+    fe_modn_sub(range_size, ctx->range_e, ctx->range_s);
+    fe chunk;
+    fe_div_u64(chunk, range_size, ctx->threads_count);
+
+    add_job_t *jobs = malloc(ctx->threads_count * sizeof(add_job_t));
     for (size_t i = 0; i < ctx->threads_count; ++i) {
-      pthread_create(&ctx->threads[i], NULL, cmd_add_worker, ctx);
+      jobs[i].ctx = ctx;
+      fe_modn_add_stride(jobs[i].start, ctx->range_s, chunk, i);
+      if (i == ctx->threads_count - 1)
+        fe_clone(jobs[i].end, ctx->range_e);
+      else
+        fe_modn_add_stride(jobs[i].end, ctx->range_s, chunk, i + 1);
+      pthread_create(&ctx->threads[i], NULL, cmd_add_worker, &jobs[i]);
     }
 
     for (size_t i = 0; i < ctx->threads_count; ++i) {
       pthread_join(ctx->threads[i], NULL);
     }
+    free(jobs);
 
     size_t dc = ctx->k_checked - last_c, df = ctx->k_found - last_f;
     double dt = MAX((tsnow() - s_time), 1ul) / 1000.0;
-    term_clear_line();
-    printf("%'zu / %'zu ~ %.1fs\n\n", df, dc, dt);
+    if (!ctx->quiet) {
+      term_clear_line();
+      printf("%'zu / %'zu ~ %.1fs\n\n", df, dc, dt);
+    }
 
     if (is_full) break;
   }
@@ -798,11 +872,13 @@ void init(ctx_t *ctx, args_t *args) {
 
   ctx->has_seed = false;
   char *seed = arg_str(args, "-seed");
+  u64 seed_val = _urand64();
   if (seed != NULL) {
     ctx->has_seed = true;
-    srand(encode_seed(seed));
+    seed_val = encode_seed(seed);
     free(seed);
   }
+  prng_seed(seed_val);
 
   char *path = arg_str(args, "-f");
   load_filter(ctx, path);
@@ -846,22 +922,29 @@ void init(ctx_t *ctx, args_t *args) {
   load_offs_size(ctx, args);
   queue_init(&ctx->queue, ctx->threads_count * 3);
 
-  printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
-         ctx->threads_count, ctx->check_addr33, ctx->check_addr65, ctx->use_endo);
+  if (!ctx->quiet) {
+    printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
+           ctx->threads_count, ctx->check_addr33, ctx->check_addr65,
+           ctx->use_endo);
 
-  if (ctx->to_find_hashes != NULL) printf("list (%'zu)\n", ctx->to_find_count);
-  else printf("bloom\n");
+    if (ctx->to_find_hashes != NULL)
+      printf("list (%'zu)\n", ctx->to_find_count);
+    else
+      printf("bloom\n");
 
-  if (ctx->cmd == CMD_ADD) {
-    fe_print("range_s", ctx->range_s);
-    fe_print("range_e", ctx->range_e);
-  }
+    if (ctx->cmd == CMD_ADD) {
+      fe_print("range_s", ctx->range_s);
+      fe_print("range_e", ctx->range_e);
+    }
 
-  if (ctx->cmd == CMD_MUL) {
+    if (ctx->cmd == CMD_MUL) {
+      ctx->raw_text = args_bool(args, "-raw");
+    }
+
+    printf("----------------------------------------\n");
+  } else if (ctx->cmd == CMD_MUL) {
     ctx->raw_text = args_bool(args, "-raw");
   }
-
-  printf("----------------------------------------\n");
 }
 
 void handle_sigint(int sig) {

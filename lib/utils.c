@@ -15,6 +15,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "xoshiro256ss.h"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -80,7 +81,37 @@ static void _close_urandom(void) {
   }
 }
 
-u64 _prand64() { return (u64)rand() << 32 | (u64)rand(); }
+// xoshiro256** PRNG state
+static struct xoshiro256ss xrng __attribute__((aligned(64)));
+#define XRNG_BUF_SIZE 4096
+static u64 xrng_buf[XRNG_BUF_SIZE] __attribute__((aligned(64)));
+static size_t xrng_idx = XRNG_BUF_SIZE;
+
+void prng_seed(u64 seed) {
+  xoshiro256ss_init(&xrng, seed);
+  xrng_idx = XRNG_BUF_SIZE;
+}
+
+INLINE u64 prng_next64() {
+  if (xrng_idx >= XRNG_BUF_SIZE) {
+    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
+                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+    xrng_idx = 0;
+  }
+  return xrng_buf[xrng_idx++];
+}
+
+void prng_next8(u64 out[8]) {
+  if (xrng_idx + 8 > XRNG_BUF_SIZE) {
+    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
+                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+    xrng_idx = 0;
+  }
+  memcpy(out, &xrng_buf[xrng_idx], 8 * sizeof(u64));
+  xrng_idx += 8;
+}
+
+u64 _prand64() { return prng_next64(); }
 
 u64 _urand64() {
   if (_urandom == NULL) {
@@ -117,7 +148,9 @@ u32 encode_seed(const char *seed) {
 // MARK: fe_random
 
 void fe_prand(fe r) {
-  for (int i = 0; i < 4; ++i) r[i] = _prand64();
+  __attribute__((aligned(64))) u64 buf[8];
+  prng_next8(buf);
+  for (int i = 0; i < 4; ++i) r[i] = buf[i];
   r[3] &= 0xfffffffefffffc2f;
 }
 
@@ -323,6 +356,73 @@ bool blf_has(blf_t *blf, const h160_t hash) {
   }
 
   return true;
+}
+
+#ifdef __AVX2__
+#include <immintrin.h>
+// vectorized bloom filter check for 4 hashes
+void blf_has4(uint8_t out[4], blf_t *blf, const h160_t *hashes) {
+  __m256i a1 = _mm256_set_epi64x((u64)hashes[3][0] << 32 | hashes[3][1],
+                                 (u64)hashes[2][0] << 32 | hashes[2][1],
+                                 (u64)hashes[1][0] << 32 | hashes[1][1],
+                                 (u64)hashes[0][0] << 32 | hashes[0][1]);
+  __m256i a2 = _mm256_set_epi64x((u64)hashes[3][2] << 32 | hashes[3][3],
+                                 (u64)hashes[2][2] << 32 | hashes[2][3],
+                                 (u64)hashes[1][2] << 32 | hashes[1][3],
+                                 (u64)hashes[0][2] << 32 | hashes[0][3]);
+  __m256i a3 = _mm256_set_epi64x((u64)hashes[3][4] << 32 | hashes[3][0],
+                                 (u64)hashes[2][4] << 32 | hashes[2][0],
+                                 (u64)hashes[1][4] << 32 | hashes[1][0],
+                                 (u64)hashes[0][4] << 32 | hashes[0][0]);
+  __m256i a4 = _mm256_set_epi64x((u64)hashes[3][1] << 32 | hashes[3][2],
+                                 (u64)hashes[2][1] << 32 | hashes[2][2],
+                                 (u64)hashes[1][1] << 32 | hashes[1][2],
+                                 (u64)hashes[0][1] << 32 | hashes[0][2]);
+  __m256i a5 = _mm256_set_epi64x((u64)hashes[3][3] << 32 | hashes[3][4],
+                                 (u64)hashes[2][3] << 32 | hashes[2][4],
+                                 (u64)hashes[1][3] << 32 | hashes[1][4],
+                                 (u64)hashes[0][3] << 32 | hashes[0][4]);
+
+  const int shifts[4] = {24, 28, 36, 40};
+  for (int i = 0; i < 4; ++i) out[i] = 1;
+
+  for (int s = 0; s < 4; ++s) {
+    int S = shifts[s];
+    __m256i i1 = _mm256_or_si256(_mm256_slli_epi64(a1, S), _mm256_srli_epi64(a2, S));
+    __m256i i2 = _mm256_or_si256(_mm256_slli_epi64(a2, S), _mm256_srli_epi64(a3, S));
+    __m256i i3 = _mm256_or_si256(_mm256_slli_epi64(a3, S), _mm256_srli_epi64(a4, S));
+    __m256i i4 = _mm256_or_si256(_mm256_slli_epi64(a4, S), _mm256_srli_epi64(a5, S));
+    __m256i i5 = _mm256_or_si256(_mm256_slli_epi64(a5, S), _mm256_srli_epi64(a1, S));
+
+    alignas(32) u64 idx[5][4];
+    _mm256_store_si256((__m256i *)idx[0], i1);
+    _mm256_store_si256((__m256i *)idx[1], i2);
+    _mm256_store_si256((__m256i *)idx[2], i3);
+    _mm256_store_si256((__m256i *)idx[3], i4);
+    _mm256_store_si256((__m256i *)idx[4], i5);
+
+    for (int lane = 0; lane < 4; ++lane) {
+      if (!out[lane]) continue;
+      if (!blf_getbit(blf, idx[0][lane]) || !blf_getbit(blf, idx[1][lane]) ||
+          !blf_getbit(blf, idx[2][lane]) || !blf_getbit(blf, idx[3][lane]) ||
+          !blf_getbit(blf, idx[4][lane]))
+        out[lane] = 0;
+    }
+  }
+}
+#else
+void blf_has4(uint8_t out[4], blf_t *blf, const h160_t *hashes) {
+  for (int i = 0; i < 4; ++i) out[i] = blf_has(blf, hashes[i]);
+}
+#endif
+
+void blf_has8(uint8_t out[8], blf_t *blf, const h160_t *hashes) {
+#ifdef __AVX2__
+  blf_has4(out, blf, hashes);
+  blf_has4(out + 4, blf, hashes + 4);
+#else
+  for (int i = 0; i < 8; ++i) out[i] = blf_has(blf, hashes[i]);
+#endif
 }
 
 bool blf_save(const char *filepath, blf_t *blf) {
