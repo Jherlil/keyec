@@ -35,6 +35,7 @@ typedef struct ctx_t {
 
   FILE *outfile;
   bool quiet;
+  u32 print_secs; // seconds between status prints
   bool use_color;
 
   bool finished;       // true if the program is exiting
@@ -138,6 +139,7 @@ void load_filter(ctx_t *ctx, const char *filepath) {
 
 // note: this function is not thread-safe; use mutex lock before calling
 void ctx_print_unlocked(ctx_t *ctx) {
+  if (ctx->quiet) return;
   char *msg = ctx->finished ? "" : (ctx->paused ? " ('r' – resume)" : " ('p' – pause)");
 
   int64_t effective_time = (int64_t)(ctx->ts_updated - ctx->ts_started) - (int64_t)ctx->paused_time;
@@ -165,7 +167,7 @@ void ctx_update(ctx_t *ctx, size_t k_checked) {
   size_t ts = tsnow();
 
   pthread_mutex_lock(&ctx->lock);
-  bool need_print = (ts - ctx->ts_printed) >= 100;
+  bool need_print = (ts - ctx->ts_printed) >= (size_t)ctx->print_secs * 1000;
   ctx->k_checked += k_checked;
   ctx->ts_updated = ts;
   if (need_print) {
@@ -836,6 +838,7 @@ void usage(const char *name) {
   printf("  -r <range>      - search range in hex format (example: 8000:ffff, default all)\n");
   printf("  -d <offs:size>  - bit offset and size for search (example: 128:32, default: 0:32)\n");
   printf("  -q              - quiet mode (no output to stdout; -o required)\n");
+  printf("  -s <sec>        - seconds between status prints (default: 1)\n");
   printf("  -endo           - use endomorphism (default: false)\n");
   printf("\nOther commands:\n");
   printf("  blf-gen         - create bloom filter from list of hex-encoded hash160\n");
@@ -884,6 +887,7 @@ void init(ctx_t *ctx, args_t *args) {
   load_filter(ctx, path);
 
   ctx->quiet = args_bool(args, "-q");
+  ctx->print_secs = args_uint(args, "-s", 1);
   char *outfile = arg_str(args, "-o");
   if (outfile) ctx->outfile = fopen(outfile, "a");
 
@@ -914,7 +918,7 @@ void init(ctx_t *ctx, args_t *args) {
   ctx->k_found = 0;
   ctx->ts_started = tsnow();
   ctx->ts_updated = ctx->ts_started;
-  ctx->ts_printed = ctx->ts_started - 5e3;
+  ctx->ts_printed = ctx->ts_started - (size_t)ctx->print_secs * 1000;
   ctx->paused_time = 0;
   ctx->paused = false;
 
