@@ -13,9 +13,11 @@ default: build
 clean:
 	@rm -rf ecloop bench main a.out *.profraw *.profdata xoshiro256ss-avx/*.o
 
-build: clean xoshiro256ss-avx/xoshiro256ss.o
+build:
+	$(MAKE) clean
+	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o
 	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-	main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
+main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
 
 xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
 	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
