@@ -44,6 +44,7 @@ Compute commands:
   add             - search in given range with batch addition
   mul             - search hex encoded private keys (from stdin)
   rnd             - search random range of bits in given range
+  loop            - continuous privkey scan using fast secp256k1
 
 Compute options:
   -f <file>       - filter file to search (list of hashes or bloom fitler)

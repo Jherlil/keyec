@@ -904,7 +904,6 @@ bool ec_verify(const pe *p) {
 
 
 static void scalar_mult(pe *r, const fe k) {
-  secp_init();
   unsigned char sk[32];
   for (int i = 0; i < 4; ++i) {
     u64 be = swap64(k[3 - i]);
