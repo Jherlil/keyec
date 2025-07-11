@@ -113,34 +113,28 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
   pe_clone(&r, P);
   pe_clone(&g, G);
 
-  h160_t h;
-  fe pk;
-  uint64_t i = 0;
+  while (batch_size) {
+    uint64_t chunk = batch_size > HASH_BATCH_SIZE ? HASH_BATCH_SIZE : batch_size;
+    pe pts[HASH_BATCH_SIZE];
+    h160_t hashes[HASH_BATCH_SIZE];
 
-  while (i + 8 <= batch_size) {
-    pe r8[8];
-    pe_clone(&r8[0], &r);
-    for (int j = 1; j < 8; ++j) {
-      ec_jacobi_addrdc(&r8[j], &r8[j - 1], &g);
+    pe_clone(&pts[0], &r);
+    for (uint64_t j = 1; j < chunk; ++j) {
+      ec_jacobi_addrdc(&pts[j], &pts[j - 1], &g);
     }
-    for (int j = 0; j < 8; ++j) {
-      addr33(h, &r8[j]);
-      fe_set64(pk, start_k + i + j + 1);
-      if (ctx_check_hash(ctx, h)) {
-        ctx_write_found(ctx, "addr33", h, pk);
+
+    addr33_batch(hashes, pts, chunk);
+    for (uint64_t j = 0; j < chunk; ++j) {
+      fe pk;
+      fe_set64(pk, start_k + j + 1);
+      if (ctx_check_hash(ctx, hashes[j])) {
+        ctx_write_found(ctx, "addr33", hashes[j], pk);
       }
     }
-    ec_jacobi_addrdc(&r, &r8[7], &g);
-    i += 8;
-  }
 
-  for (; i < batch_size; ++i) {
-    ec_jacobi_addrdc(&r, &r, &g);
-    addr33(h, &r);
-    fe_set64(pk, start_k + i + 1);
-    if (ctx_check_hash(ctx, h)) {
-      ctx_write_found(ctx, "addr33", h, pk);
-    }
+    ec_jacobi_addrdc(&r, &pts[chunk - 1], &g);
+    start_k += chunk;
+    batch_size -= chunk;
   }
 
   pe_clone(P, &r);
