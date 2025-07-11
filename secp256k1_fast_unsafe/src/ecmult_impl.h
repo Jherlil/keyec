@@ -17,11 +17,11 @@
 /** larger numbers may result in slightly better performance, at the cost of
     exponentially larger precomputed tables. */
 #ifdef USE_ENDOMORPHISM
-/** Two tables for window size 15: 1.375 MiB. */
-#define WINDOW_G 15
+/** Two tables for window size 9: 36 KiB. */
+#define WINDOW_G 9
 #else
-/** One table for window size 16: 1.375 MiB. */
-#define WINDOW_G 16
+/** One table for window size 9: 18 KiB. */
+#define WINDOW_G 9
 #endif
 
 /** The number of entries a table with precomputed multiples needs to have. */
