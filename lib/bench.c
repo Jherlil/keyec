@@ -120,12 +120,11 @@ void run_bench_gtable() {
   for (size_t i = 0; i < numSize; ++i) fe_prand(numbers[i]);
 
   size_t iters = 1000 * 500;
+#ifndef USE_SECP256K1
   size_t stime;
   double gent, mult;
   pe g;
-
   size_t mem_used;
-#ifndef USE_SECP256K1
   for (int i = 8; i <= 22; i += 2) {
     _GTABLE_W = i;
 
@@ -142,7 +141,7 @@ void run_bench_gtable() {
            i, iters / mult / 1000, gent, mult, mem);
   }
 #else
-  (void)iters; (void)numbers; (void)mem_used; (void)g; (void)gent; (void)mult;
+  (void)iters; (void)numbers;
   printf("gtable benchmark disabled when USE_SECP256K1 is set\n");
 #endif
 }

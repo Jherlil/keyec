@@ -37,7 +37,7 @@ add: build
 	./ecloop add -f data/btc-puzzles-hash -r 8000:ffffff
 
 mul: build
-	cat data/btc-bw-priv | ./ecloop mul -f data/btc-bw-hash -a cu -q -o /dev/null
+	cat data/btc-bw-priv | ./ecloop mul -f data/btc-bw-hash -a cu -o /dev/null
 
 rnd: build
 	./ecloop rnd -f data/btc-puzzles-hash -r 800000000000000000:ffffffffffffffff -d 0:32
@@ -51,7 +51,7 @@ blf: build
 	@printf "\n> "
 	./ecloop add -f /tmp/test.blf -r 8000:ffffff -q -o /dev/null
 	@printf "\n> "
-	cat data/btc-bw-priv | ./ecloop mul -f /tmp/test.blf -a cu -q -o /dev/null
+	cat data/btc-bw-priv | ./ecloop mul -f /tmp/test.blf -a cu -o /dev/null
 
 verify: build
 	./ecloop mult-verify

@@ -577,9 +577,11 @@ GLOBAL pe G2 = {
     .z = {0x1, 0x0, 0x0, 0x0},
 };
 
+#ifndef USE_SECP256K1
 // Precomputed odd multiples of G for w=9 wNAF
 alignas(64) static pe precomp_table[256];
 static bool precomp_ready = false;
+#endif
 
 INLINE void pe_clone(pe *r, const pe *a) {
   memcpy(r, a, sizeof(pe));
@@ -893,6 +895,7 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
+#ifndef USE_SECP256K1
 static void wnaf_precompute(void) {
   if (precomp_ready) return;
 
@@ -968,7 +971,7 @@ static void scalar_mult(pe *r, const fe k) {
   } else {
     ec_jacobi_rdc(r, &acc);
   }
-}
+#endif // USE_SECP256K1
 
 // MARK: EC GTable
 
@@ -1006,10 +1009,13 @@ size_t ec_gtable_init() {
   return mem_size;
 #endif
 }
+#ifdef USE_SECP256K1
+static int secp_mul_G(pe *r, const fe k);
+#endif
 
 void ec_gtable_mul(pe *r, const fe pk) {
 #ifdef USE_SECP256K1
-  scalar_mult(r, pk);
+  secp_mul_G(r, pk);
 #else
   if (_gtable == NULL) {
     printf("GTable is not initialized\n");
@@ -1086,6 +1092,10 @@ int secp_mul_G(pe *r, const fe k) {
 #endif
 
 void ec_mul_gen(pe *r, const fe k) {
+#ifdef USE_SECP256K1
+    secp_mul_G(r, k);
+#else
     scalar_mult(r, k);
+#endif
 }
 
