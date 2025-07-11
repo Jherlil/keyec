@@ -488,7 +488,8 @@ void cmd_add(ctx_t *ctx) {
 
   fe range_size;
   fe_modn_sub(range_size, ctx->range_e, ctx->range_s);
-  ctx->job_size = fe_cmp64(range_size, MAX_JOB_SIZE) < 0 ? range_size[0] : MAX_JOB_SIZE;
+  if (ctx->job_size == 0)
+    ctx->job_size = fe_cmp64(range_size, MAX_JOB_SIZE) < 0 ? range_size[0] : MAX_JOB_SIZE;
   ctx->ts_started = tsnow(); // actual start time
 
   fe chunk;
@@ -684,7 +685,8 @@ void cmd_rnd(ctx_t *ctx) {
            ctx->ord_size);
 
   ctx_precompute_gpoints(ctx);
-  ctx->job_size = MAX_JOB_SIZE;
+  if (ctx->job_size == 0)
+    ctx->job_size = MAX_JOB_SIZE;
   ctx->ts_started = tsnow(); // actual start time
 
   fe range_s, range_e;
@@ -845,6 +847,7 @@ void usage(const char *name) {
   printf("  -d <offs:size>  - bit offset and size for search (example: 128:32, default: 0:32)\n");
   printf("  -q              - quiet mode (no output to stdout; -o required)\n");
   printf("  -s <sec>        - seconds between status prints (default: 1)\n");
+  printf("  --batch-size <n> - job batch size for 'add' (default: auto)\n");
   printf("  -endo           - use endomorphism (default: false)\n");
   printf("\nOther commands:\n");
   printf("  blf-gen         - create bloom filter from list of hex-encoded hash160\n");
@@ -863,6 +866,15 @@ void init(ctx_t *ctx, args_t *args) {
     if (strcmp(args->argv[1], "bench-gtable") == 0) return run_bench_gtable();
     if (strcmp(args->argv[1], "mult-verify") == 0) return mult_verify();
   }
+
+  uint64_t batch_size = 0;
+  for (int i = 1; i < args->argc; ++i) {
+    if (strcmp(args->argv[i], "--batch-size") == 0 && i + 1 < args->argc) {
+      batch_size = atoll(args->argv[i + 1]);
+      i++;
+    }
+  }
+  ctx->job_size = batch_size;
 
   ctx->use_color = isatty(fileno(stdout));
 
