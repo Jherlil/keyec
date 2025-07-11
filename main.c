@@ -37,9 +37,6 @@ uint64_t next_privkey() {
   return xoshiro256pp_next(&rng_state);
 }
 
-typedef struct { fe x, y, z; } secp256k1_gej;
-typedef struct { fe x, y; } secp256k1_ge;
-
 // forward declaration for context structure
 struct ctx_t;
 
@@ -47,8 +44,7 @@ struct ctx_t;
  * Add the generator point to `P` sequentially `batch_size` times and check
  * each resulting public key. `start_k` is the private key of `P`.
  */
-static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
-                                 const secp256k1_gej *G,
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
                                  uint64_t batch_size, uint64_t start_k);
 static void ctx_write_found(struct ctx_t *ctx, const char *label,
                             const h160_t hash, const fe pk);
@@ -111,12 +107,11 @@ typedef struct add_job_t {
 
 // -----------------------------------------------------------------------------
 // Batch point addition helper
-static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
-                                 const secp256k1_gej *G,
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
                                  uint64_t batch_size, uint64_t start_k) {
   pe r, g;
-  memcpy(&r, P, sizeof(pe));
-  memcpy(&g, G, sizeof(pe));
+  pe_clone(&r, P);
+  pe_clone(&g, G);
 
   h160_t h;
   fe pk;
@@ -148,7 +143,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
     }
   }
 
-  memcpy(P, &r, sizeof(pe));
+  pe_clone(P, &r);
 }
 
 void load_filter(ctx_t *ctx, const char *filepath) {
@@ -809,8 +804,8 @@ void cmd_rnd(ctx_t *ctx) {
 void cmd_loop(ctx_t *ctx) {
   pe point;
   fe priv;
-  secp256k1_gej gen, pj;
-  memcpy(&gen, &G1, sizeof(pe));
+  pe gen, pj;
+  pe_clone(&gen, &G1);
   uint64_t batch_size = ctx->job_size;
 
   while (true) {
@@ -825,7 +820,7 @@ void cmd_loop(ctx_t *ctx) {
     }
 
     if (batch_size > 0) {
-      memcpy(&pj, &point, sizeof(pe));
+      pe_clone(&pj, &point);
       point_add_batch_avx2(ctx, &pj, &gen, batch_size, k);
     }
   }
