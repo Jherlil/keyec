@@ -935,25 +935,16 @@ static void pubkey_to_pe(pe *r, const secp256k1_pubkey *pub) {
 static void pe_to_pubkey(secp256k1_pubkey *pub, const pe *p) {
   unsigned char buf[65];
   pe_to_bytes(buf, p);
-  secp256k1_ec_pubkey_parse(secp_ctx, pub, buf, sizeof(buf));
+  (void)secp256k1_ec_pubkey_parse(secp_ctx, pub, buf, sizeof(buf));
 }
 
-static void secp_point_add(pe *r, const pe *p, const pe *q) {
-  secp256k1_pubkey a, b;
-  pe_to_pubkey(&a, p);
-  pe_to_pubkey(&b, q);
-  const secp256k1_pubkey *ins[2] = {&a, &b};
-  secp256k1_pubkey out;
-  secp256k1_ec_pubkey_combine(secp_ctx, &out, ins, 2);
-  pubkey_to_pe(r, &out);
-}
 
 static void secp_point_add_G(pe *r, const pe *p) {
   secp256k1_pubkey a;
   pe_to_pubkey(&a, p);
   unsigned char tweak[32] = {0};
   tweak[31] = 1;
-  secp256k1_ec_pubkey_tweak_add(secp_ctx, &a, tweak);
+  (void)secp256k1_ec_pubkey_tweak_add(secp_ctx, &a, tweak);
   pubkey_to_pe(r, &a);
 }
 
