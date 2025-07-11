@@ -6,6 +6,11 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <immintrin.h>
+#include "secp256k1.h"
+#include "xoshiro256plusplus.h"
+#include "sha256.h"
+#include "ripemd160.h"
 
 #include "lib/addr.c"
 #include "lib/bench.c"
@@ -19,6 +24,16 @@
 
 static_assert(GROUP_INV_SIZE % HASH_BATCH_SIZE == 0,
               "GROUP_INV_SIZE must be divisible by HASH_BATCH_SIZE");
+
+xoshiro256pp_state rng_state;
+
+static inline void init_rng(uint64_t seed) {
+  xoshiro256pp_seed(&rng_state, seed);
+}
+
+static inline uint64_t next_privkey() {
+  return xoshiro256pp_next(&rng_state);
+}
 
 enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND };
 
