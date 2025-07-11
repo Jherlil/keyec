@@ -12,6 +12,8 @@
 #include "sha256.h"
 #include "ripemd160.h"
 
+#include <string.h>
+
 #include "lib/addr.c"
 #include "lib/bench.c"
 #include "lib/ecc.c"
@@ -33,6 +35,30 @@ void init_rng(uint64_t seed) {
 
 uint64_t next_privkey() {
   return xoshiro256pp_next(&rng_state);
+}
+
+typedef struct { fe x, y, z; } secp256k1_gej;
+typedef struct { fe x, y; } secp256k1_ge;
+
+/*
+ * Simplified batch point addition placeholder. It iteratively adds the
+ * generator point G to P and hashes each intermediate public key. The
+ * hashing code mirrors addr33() from addr.c but does not report hits.
+ */
+static void point_add_batch_avx2(secp256k1_gej *P, const secp256k1_gej *G,
+                                 uint64_t batch_size) {
+  pe r, g;
+  memcpy(&r, P, sizeof(pe));
+  memcpy(&g, G, sizeof(pe));
+
+  h160_t h;
+  for (uint64_t i = 0; i < batch_size; ++i) {
+    ec_jacobi_addrdc(&r, &r, &g);
+    addr33(h, &r);
+    /* hit check and reporting would go here */
+  }
+
+  memcpy(P, &r, sizeof(pe));
 }
 
 enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND };
