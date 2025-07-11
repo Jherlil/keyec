@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdalign.h>
 
 #include "compat.c"
 #define GLOBAL static const
@@ -62,6 +63,14 @@ void fe_add64(fe r, const u64 a) {
   r[1] = addc64(r[1], 0, c, &c);
   r[2] = addc64(r[2], 0, c, &c);
   r[3] = addc64(r[3], 0, c, &c);
+}
+
+INLINE void fe_sub64(fe r, const u64 a) {
+  u64 c = 0;
+  r[0] = subc64(r[0], a, 0, &c);
+  r[1] = subc64(r[1], 0, c, &c);
+  r[2] = subc64(r[2], 0, c, &c);
+  r[3] = subc64(r[3], 0, c, &c);
 }
 
 int fe_cmp64(const fe a, const u64 b) {
@@ -568,6 +577,10 @@ GLOBAL pe G2 = {
     .z = {0x1, 0x0, 0x0, 0x0},
 };
 
+// Precomputed odd multiples of G for w=9 wNAF
+alignas(64) static pe precomp_table[256];
+static bool precomp_ready = false;
+
 INLINE void pe_clone(pe *r, const pe *a) {
   memcpy(r, a, sizeof(pe));
   // fe_clone(r->x, a->x);
@@ -880,6 +893,83 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
+static void wnaf_precompute(void) {
+  if (precomp_ready) return;
+
+  pe twoG, t;
+  ec_jacobi_dbl(&twoG, &G1);     // 2*G
+  pe_clone(&precomp_table[0], &G1); // 1*G
+  ec_jacobi_add(&t, &twoG, &G1); // 3*G
+  pe_clone(&precomp_table[1], &t);
+  for (int i = 2; i < 256; ++i) {
+    ec_jacobi_add(&t, &t, &twoG); // +2*G each step
+    pe_clone(&precomp_table[i], &t);
+  }
+  ec_jacobi_grprdc(precomp_table, 256);
+  precomp_ready = true;
+}
+
+static int wnaf_9(int8_t out[], const fe k) {
+  fe c;
+  fe_clone(c, k);
+  int pos = 0;
+  while (!fe_iszero(c)) {
+    int8_t v = 0;
+    if (c[0] & 1) {
+      u64 mod = c[0] & 0x1FF; // 2^9 - 1
+      if (mod > 256) {
+        v = (int8_t)(mod - 512);
+        fe_add64(c, 512 - mod);
+      } else {
+        v = (int8_t)mod;
+        fe_sub64(c, mod);
+      }
+    }
+    out[pos++] = v;
+    fe_shiftr64(c, 1);
+  }
+  return pos;
+}
+
+static void scalar_mult(pe *r, const fe k) {
+  wnaf_precompute();
+
+  int8_t wnaf[260] = {0};
+  int bits = wnaf_9(wnaf, k);
+
+  pe acc = {0};
+  fe_set64(acc.z, 1);
+  bool first = true;
+  pe tmp;
+  for (int i = bits - 1; i >= 0; --i) {
+    if (!first) ec_jacobi_dbl(&acc, &acc);
+    int8_t v = wnaf[i];
+    if (v) {
+      const pe *p;
+      if (v > 0) {
+        p = &precomp_table[(v - 1) >> 1];
+      } else {
+        pe_clone(&tmp, &precomp_table[((-v) - 1) >> 1]);
+        fe_modp_neg(tmp.y, tmp.y);
+        p = &tmp;
+      }
+      if (first) {
+        pe_clone(&acc, p);
+        first = false;
+      } else {
+        ec_jacobi_add(&acc, &acc, p);
+      }
+    }
+  }
+  if (first) {
+    fe_set64(r->x, 0);
+    fe_set64(r->y, 0);
+    fe_set64(r->z, 1);
+  } else {
+    ec_jacobi_rdc(r, &acc);
+  }
+}
+
 // MARK: EC GTable
 
 u64 _GTABLE_W = 14;
@@ -919,7 +1009,7 @@ size_t ec_gtable_init() {
 
 void ec_gtable_mul(pe *r, const fe pk) {
 #ifdef USE_SECP256K1
-  secp_mul_G(r, pk);
+  scalar_mult(r, pk);
 #else
   if (_gtable == NULL) {
     printf("GTable is not initialized\n");
@@ -996,10 +1086,6 @@ int secp_mul_G(pe *r, const fe k) {
 #endif
 
 void ec_mul_gen(pe *r, const fe k) {
-#ifdef USE_SECP256K1
-    secp_mul_G(r, k);
-#else
-    ec_jacobi_mulrdc(r, &G1, k);
-#endif
+    scalar_mult(r, k);
 }
 
