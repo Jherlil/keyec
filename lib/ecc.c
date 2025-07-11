@@ -589,9 +589,6 @@ GLOBAL pe G2 = {
     .z = {0x1, 0x0, 0x0, 0x0},
 };
 
-// Precomputed odd multiples of G for w=9 wNAF
-alignas(64) static pe precomp_table[256];
-static bool precomp_ready = false;
 
 INLINE void pe_clone(pe *r, const pe *a) {
   memcpy(r, a, sizeof(pe));
@@ -905,43 +902,6 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
-static void wnaf_precompute(void) {
-  if (precomp_ready) return;
-
-  pe twoG, t;
-  ec_jacobi_dbl(&twoG, &G1);     // 2*G
-  pe_clone(&precomp_table[0], &G1); // 1*G
-  ec_jacobi_add(&t, &twoG, &G1); // 3*G
-  pe_clone(&precomp_table[1], &t);
-  for (int i = 2; i < 256; ++i) {
-    ec_jacobi_add(&t, &t, &twoG); // +2*G each step
-    pe_clone(&precomp_table[i], &t);
-  }
-  ec_jacobi_grprdc(precomp_table, 256);
-  precomp_ready = true;
-}
-
-static int wnaf_9(int8_t out[], const fe k) {
-  fe c;
-  fe_clone(c, k);
-  int pos = 0;
-  while (!fe_iszero(c)) {
-    int8_t v = 0;
-    if (c[0] & 1) {
-      u64 mod = c[0] & 0x1FF; // 2^9 - 1
-      if (mod > 256) {
-        v = (int8_t)(mod - 512);
-        fe_add64(c, 512 - mod);
-      } else {
-        v = (int8_t)mod;
-        fe_sub64(c, mod);
-      }
-    }
-    out[pos++] = v;
-    fe_shiftr64(c, 1);
-  }
-  return pos;
-}
 
 static void scalar_mult(pe *r, const fe k) {
   secp_init();
