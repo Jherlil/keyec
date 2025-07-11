@@ -22,6 +22,9 @@ A high-performance, CPU-optimized tool for computing public keys on the secp256k
 ```sh
 git clone https://github.com/vladkens/ecloop.git && cd ecloop
 make build
+# The build automatically compiles the bundled
+# `secp256k1_fast_unsafe` library with window size w=9
+# for optimal scalar multiplication performance.
 ```
 
 _\* On macOS, you may need to run `xcode-select --install` first._
