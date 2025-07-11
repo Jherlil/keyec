@@ -4,6 +4,9 @@ CC = cc
 NASM = nasm
 CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra -DNO_SIMD
 
+## Optimized build flags
+CFLAGS += -march=native -mavx2 -maes -msha -funroll-loops -O3 -ffast-math -pthread
+
 ifeq ($(shell uname -m),x86_64)
 CC_FLAGS += -march=x86-64-v2 -mavx2 -pthread -lpthread
 endif
@@ -15,11 +18,11 @@ clean:
 
 build:
 	$(MAKE) clean
-	$(CC) -c -O3 -I./secp256k1_fast_unsafe -I./secp256k1_fast_unsafe/include -I./secp256k1_fast_unsafe/src -include secp256k1_fast_unsafe/src/basic-config.h -DUSE_BASIC_CONFIG -DSECP256K1_BUILD secp256k1_fast_unsafe/src/secp256k1.c -o secp256k1.o
-	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/flo-shani.c -o flo-shani.o
-	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/sha256_vectorized.c -o sha256_vectorized.o
-	$(CC) -c -O3 -mavx2 xoshiro256pp.c -o xoshiro256pp.o
-	$(CC) $(CC_FLAGS) \
+       $(CC) $(CFLAGS) -c -I./secp256k1_fast_unsafe -I./secp256k1_fast_unsafe/include -I./secp256k1_fast_unsafe/src -include secp256k1_fast_unsafe/src/basic-config.h -DUSE_BASIC_CONFIG -DSECP256K1_BUILD secp256k1_fast_unsafe/src/secp256k1.c -o secp256k1.o
+       $(CC) $(CFLAGS) -c -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/flo-shani.c -o flo-shani.o
+       $(CC) $(CFLAGS) -c -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/sha256_vectorized.c -o sha256_vectorized.o
+       $(CC) $(CFLAGS) -c xoshiro256pp.c -o xoshiro256pp.o
+       $(CC) $(CC_FLAGS) $(CFLAGS) \
                -I./secp256k1_fast_unsafe -I./secp256k1_fast_unsafe/include \
                -I./secp256k1_fast_unsafe/src \
                -include secp256k1_fast_unsafe/src/basic-config.h \
