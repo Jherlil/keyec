@@ -61,7 +61,7 @@ static void point_add_batch_avx2(secp256k1_gej *P, const secp256k1_gej *G,
   memcpy(P, &r, sizeof(pe));
 }
 
-enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND };
+enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND, CMD_LOOP };
 
 typedef struct ctx_t {
   enum Cmd cmd;
@@ -771,6 +771,31 @@ void cmd_rnd(ctx_t *ctx) {
   ctx_finish(ctx);
 }
 
+void cmd_loop(ctx_t *ctx) {
+  pe point;
+  fe priv;
+  secp256k1_gej gen, pj;
+  memcpy(&gen, &G1, sizeof(pe));
+  uint64_t batch_size = ctx->job_size;
+
+  while (true) {
+    uint64_t k = next_privkey();
+    fe_set64(priv, k);
+    ec_mul_gen(&point, priv);
+
+    h160_t h;
+    addr33(h, &point);
+    if (ctx_check_hash(ctx, h)) {
+      ctx_write_found(ctx, "addr33", h, priv);
+    }
+
+    if (batch_size > 0) {
+      memcpy(&pj, &point, sizeof(pe));
+      point_add_batch_avx2(&pj, &gen, batch_size);
+    }
+  }
+}
+
 // MARK: args helpers
 
 void arg_search_range(args_t *args, fe range_s, fe range_e) {
@@ -864,6 +889,7 @@ void usage(const char *name) {
   printf("  add             - search in given range with batch addition\n");
   printf("  mul             - search hex encoded private keys (from stdin)\n");
   printf("  rnd             - search random range of bits in given range\n");
+  printf("  loop            - continuous privkey scan using fast secp256k1\n");
   printf("\nCompute options:\n");
   printf("  -f <file>       - filter file to search (list of hashes or bloom fitler)\n");
   printf("  -o <file>       - output file to write found keys (default: stdout)\n");
@@ -909,6 +935,7 @@ void init(ctx_t *ctx, args_t *args) {
     if (strcmp(args->argv[1], "add") == 0) ctx->cmd = CMD_ADD;
     if (strcmp(args->argv[1], "mul") == 0) ctx->cmd = CMD_MUL;
     if (strcmp(args->argv[1], "rnd") == 0) ctx->cmd = CMD_RND;
+    if (strcmp(args->argv[1], "loop") == 0) ctx->cmd = CMD_LOOP;
   }
 
   if (ctx->cmd == CMD_NIL) {
@@ -926,6 +953,7 @@ void init(ctx_t *ctx, args_t *args) {
     free(seed);
   }
   prng_seed(seed_val);
+  init_rng(seed_val);
 
   char *path = arg_str(args, "-f");
   load_filter(ctx, path);
@@ -1034,6 +1062,7 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_ADD) cmd_add(&ctx);
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
+  if (ctx.cmd == CMD_LOOP) cmd_loop(&ctx);
   secp_cleanup();
   return 0;
 }
