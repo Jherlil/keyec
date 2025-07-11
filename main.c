@@ -44,7 +44,7 @@ struct ctx_t;
  * Add the generator point to `P` sequentially `batch_size` times and check
  * each resulting public key. `start_k` is the private key of `P`.
  */
-static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
                                  uint64_t batch_size, uint64_t start_k);
 static void ctx_write_found(struct ctx_t *ctx, const char *label,
                             const h160_t hash, const fe pk);
@@ -107,11 +107,10 @@ typedef struct add_job_t {
 
 // -----------------------------------------------------------------------------
 // Batch point addition helper
-static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
                                  uint64_t batch_size, uint64_t start_k) {
-  pe r, g;
+  pe r;
   pe_clone(&r, P);
-  pe_clone(&g, G);
 
   while (batch_size) {
     uint64_t chunk = batch_size > HASH_BATCH_SIZE ? HASH_BATCH_SIZE : batch_size;
@@ -120,7 +119,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
 
     pe_clone(&pts[0], &r);
     for (uint64_t j = 1; j < chunk; ++j) {
-      ec_jacobi_addrdc(&pts[j], &pts[j - 1], &g);
+      secp_point_add_G(&pts[j], &pts[j - 1]);
     }
 
     addr33_batch(hashes, pts, chunk);
@@ -132,7 +131,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P, const pe *G,
       }
     }
 
-    ec_jacobi_addrdc(&r, &pts[chunk - 1], &g);
+    secp_point_add_G(&r, &pts[chunk - 1]);
     start_k += chunk;
     batch_size -= chunk;
   }
@@ -815,7 +814,7 @@ void cmd_loop(ctx_t *ctx) {
 
     if (batch_size > 0) {
       pe_clone(&pj, &point);
-      point_add_batch_avx2(ctx, &pj, &gen, batch_size, k);
+      point_add_batch_avx2(ctx, &pj, batch_size, k);
     }
   }
 }

@@ -902,6 +902,61 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
+static void pe_to_bytes(unsigned char buf[65], const pe *p) {
+  buf[0] = 0x04;
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(p->x[3 - i]);
+    memcpy(buf + 1 + i * 8, &be, 8);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(p->y[3 - i]);
+    memcpy(buf + 33 + i * 8, &be, 8);
+  }
+}
+
+static void pubkey_to_pe(pe *r, const secp256k1_pubkey *pub) {
+  unsigned char out[65];
+  size_t outlen = sizeof(out);
+  secp256k1_ec_pubkey_serialize(secp_ctx, out, &outlen, pub,
+                                SECP256K1_EC_UNCOMPRESSED);
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 1 + i * 8, 8);
+    r->x[3 - i] = swap64(be);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 33 + i * 8, 8);
+    r->y[3 - i] = swap64(be);
+  }
+  fe_set64(r->z, 1);
+}
+
+static void pe_to_pubkey(secp256k1_pubkey *pub, const pe *p) {
+  unsigned char buf[65];
+  pe_to_bytes(buf, p);
+  secp256k1_ec_pubkey_parse(secp_ctx, pub, buf, sizeof(buf));
+}
+
+static void secp_point_add(pe *r, const pe *p, const pe *q) {
+  secp256k1_pubkey a, b;
+  pe_to_pubkey(&a, p);
+  pe_to_pubkey(&b, q);
+  const secp256k1_pubkey *ins[2] = {&a, &b};
+  secp256k1_pubkey out;
+  secp256k1_ec_pubkey_combine(secp_ctx, &out, ins, 2);
+  pubkey_to_pe(r, &out);
+}
+
+static void secp_point_add_G(pe *r, const pe *p) {
+  secp256k1_pubkey a;
+  pe_to_pubkey(&a, p);
+  unsigned char tweak[32] = {0};
+  tweak[31] = 1;
+  secp256k1_ec_pubkey_tweak_add(secp_ctx, &a, tweak);
+  pubkey_to_pe(r, &a);
+}
+
 
 static void scalar_mult(pe *r, const fe k) {
   unsigned char sk[32];
@@ -1000,7 +1055,6 @@ void scalar_mult_start(pe *r, const fe k) {
 
 void scalar_mult_add(pe *r, size_t n) {
   for (size_t i = 0; i < n; ++i) {
-    ec_jacobi_add(r, r, &G1);
+    secp_point_add_G(r, r);
   }
-  ec_jacobi_rdc(r, r);
 }
