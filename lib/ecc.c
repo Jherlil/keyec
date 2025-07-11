@@ -10,9 +10,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdalign.h>
 
 #include "compat.c"
+#include "../secp256k1_fast_unsafe/include/secp256k1.h"
 #define GLOBAL static const
+
+static secp256k1_context *secp_ctx = NULL;
+
+INLINE void secp_init(void) {
+  if (!secp_ctx) secp_ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
+}
+
+INLINE void secp_cleanup(void) {
+  if (secp_ctx) secp256k1_context_destroy(secp_ctx);
+  secp_ctx = NULL;
+}
 
 INLINE u64 umul128(const u64 a, const u64 b, u64 *hi) {
   // https://stackoverflow.com/a/50958815
@@ -62,6 +75,14 @@ void fe_add64(fe r, const u64 a) {
   r[1] = addc64(r[1], 0, c, &c);
   r[2] = addc64(r[2], 0, c, &c);
   r[3] = addc64(r[3], 0, c, &c);
+}
+
+INLINE void fe_sub64(fe r, const u64 a) {
+  u64 c = 0;
+  r[0] = subc64(r[0], a, 0, &c);
+  r[1] = subc64(r[1], 0, c, &c);
+  r[2] = subc64(r[2], 0, c, &c);
+  r[3] = subc64(r[3], 0, c, &c);
 }
 
 int fe_cmp64(const fe a, const u64 b) {
@@ -552,7 +573,7 @@ void fe_modp_grpinv(fe r[], const u32 n) {
 // https://eprint.iacr.org/2015/1060.pdf
 // https://hyperelliptic.org/EFD/g1p/auto-shortw.html
 
-typedef struct pe {
+typedef struct __attribute__((aligned(64))) pe {
   fe x, y, z;
 } pe;
 
@@ -567,6 +588,7 @@ GLOBAL pe G2 = {
     .y = {0x236431a950cfe52a, 0xf7f632653266d0e1, 0xa3c58419466ceaee, 0x1ae168fea63dc339},
     .z = {0x1, 0x0, 0x0, 0x0},
 };
+
 
 INLINE void pe_clone(pe *r, const pe *a) {
   memcpy(r, a, sizeof(pe));
@@ -880,6 +902,84 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
+static void pe_to_bytes(unsigned char buf[65], const pe *p) {
+  buf[0] = 0x04;
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(p->x[3 - i]);
+    memcpy(buf + 1 + i * 8, &be, 8);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(p->y[3 - i]);
+    memcpy(buf + 33 + i * 8, &be, 8);
+  }
+}
+
+static void pubkey_to_pe(pe *r, const secp256k1_pubkey *pub) {
+  unsigned char out[65];
+  size_t outlen = sizeof(out);
+  secp256k1_ec_pubkey_serialize(secp_ctx, out, &outlen, pub,
+                                SECP256K1_EC_UNCOMPRESSED);
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 1 + i * 8, 8);
+    r->x[3 - i] = swap64(be);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 33 + i * 8, 8);
+    r->y[3 - i] = swap64(be);
+  }
+  fe_set64(r->z, 1);
+}
+
+static void pe_to_pubkey(secp256k1_pubkey *pub, const pe *p) {
+  unsigned char buf[65];
+  pe_to_bytes(buf, p);
+  (void)secp256k1_ec_pubkey_parse(secp_ctx, pub, buf, sizeof(buf));
+}
+
+
+static void secp_point_add_G(pe *r, const pe *p) {
+  secp256k1_pubkey a;
+  pe_to_pubkey(&a, p);
+  unsigned char tweak[32] = {0};
+  tweak[31] = 1;
+  (void)secp256k1_ec_pubkey_tweak_add(secp_ctx, &a, tweak);
+  pubkey_to_pe(r, &a);
+}
+
+
+static void scalar_mult(pe *r, const fe k) {
+  unsigned char sk[32];
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(k[3 - i]);
+    memcpy(sk + i * 8, &be, 8);
+  }
+  secp256k1_pubkey pub;
+  if (!secp256k1_ec_pubkey_create(secp_ctx, &pub, sk)) {
+    fe_set64(r->x, 0);
+    fe_set64(r->y, 0);
+    fe_set64(r->z, 1);
+    return;
+  }
+  unsigned char out[65];
+  size_t outlen = sizeof(out);
+  secp256k1_ec_pubkey_serialize(secp_ctx, out, &outlen, &pub,
+                                SECP256K1_EC_UNCOMPRESSED);
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 1 + i * 8, 8);
+    r->x[3 - i] = swap64(be);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 33 + i * 8, 8);
+    r->y[3 - i] = swap64(be);
+  }
+  fe_set64(r->z, 1);
+}
+
+
 // MARK: EC GTable
 
 u64 _GTABLE_W = 14;
@@ -935,4 +1035,17 @@ void ec_gtable_mul(pe *r, const fe pk) {
   }
 
   pe_clone(r, &q);
+}
+void ec_mul_gen(pe *r, const fe k) {
+    scalar_mult(r, k);
+}
+
+void scalar_mult_start(pe *r, const fe k) {
+  scalar_mult(r, k);
+}
+
+void scalar_mult_add(pe *r, size_t n) {
+  for (size_t i = 0; i < n; ++i) {
+    secp_point_add_G(r, r);
+  }
 }

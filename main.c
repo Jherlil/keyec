@@ -6,6 +6,13 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <immintrin.h>
+#include "secp256k1.h"
+#include "xoshiro256plusplus.h"
+#include "sha256.h"
+#include "ripemd160.h"
+
+#include <string.h>
 
 #include "lib/addr.c"
 #include "lib/bench.c"
@@ -20,7 +27,30 @@
 static_assert(GROUP_INV_SIZE % HASH_BATCH_SIZE == 0,
               "GROUP_INV_SIZE must be divisible by HASH_BATCH_SIZE");
 
-enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND };
+xoshiro256pp_state rng_state;
+
+void init_rng(uint64_t seed) {
+  xoshiro256pp_seed(&rng_state, seed);
+}
+
+uint64_t next_privkey() {
+  return xoshiro256pp_next(&rng_state);
+}
+
+// forward declaration for context structure
+struct ctx_t;
+
+/*
+ * Add the generator point to `P` sequentially `batch_size` times and check
+ * each resulting public key. `start_k` is the private key of `P`.
+ */
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
+                                 uint64_t batch_size, uint64_t start_k);
+static void ctx_write_found(struct ctx_t *ctx, const char *label,
+                            const h160_t hash, const fe pk);
+static bool ctx_check_hash(struct ctx_t *ctx, const h160_t h);
+
+enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND, CMD_LOOP };
 
 typedef struct ctx_t {
   enum Cmd cmd;
@@ -55,8 +85,8 @@ typedef struct ctx_t {
   fe range_s;  // search range start
   fe range_e;  // search range end
   fe stride_k; // precomputed stride key (step for G-points, 2^offset)
-  pe stride_p; // precomputed stride point (G * pk)
-  pe gpoints[GROUP_INV_SIZE];
+  pe stride_p __attribute__((aligned(64))); // precomputed stride point (G * pk)
+  pe gpoints[GROUP_INV_SIZE] __attribute__((aligned(64)));
   size_t job_size;
 
   // cmd mul
@@ -74,6 +104,40 @@ typedef struct add_job_t {
   fe start;
   fe end;
 } add_job_t;
+
+// -----------------------------------------------------------------------------
+// Batch point addition helper
+static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
+                                 uint64_t batch_size, uint64_t start_k) {
+  pe r;
+  pe_clone(&r, P);
+
+  while (batch_size) {
+    uint64_t chunk = batch_size > HASH_BATCH_SIZE ? HASH_BATCH_SIZE : batch_size;
+    pe pts[HASH_BATCH_SIZE];
+    h160_t hashes[HASH_BATCH_SIZE];
+
+    pe_clone(&pts[0], &r);
+    for (uint64_t j = 1; j < chunk; ++j) {
+      secp_point_add_G(&pts[j], &pts[j - 1]);
+    }
+
+    addr33_batch(hashes, pts, chunk);
+    for (uint64_t j = 0; j < chunk; ++j) {
+      fe pk;
+      fe_set64(pk, start_k + j + 1);
+      if (ctx_check_hash(ctx, hashes[j])) {
+        ctx_write_found(ctx, "addr33", hashes[j], pk);
+      }
+    }
+
+    secp_point_add_G(&r, &pts[chunk - 1]);
+    start_k += chunk;
+    batch_size -= chunk;
+  }
+
+  pe_clone(P, &r);
+}
 
 void load_filter(ctx_t *ctx, const char *filepath) {
   if (!filepath) {
@@ -231,10 +295,10 @@ void ctx_precompute_gpoints(ctx_t *ctx) {
 
   fe t; // precalc stride point
   fe_modn_add_stride(t, FE_ZERO, ctx->stride_k, GROUP_INV_SIZE);
-  ec_jacobi_mulrdc(&ctx->stride_p, &G1, t); // G * (GROUP_INV_SIZE * gs)
+  ec_mul_gen(&ctx->stride_p, t); // G * (GROUP_INV_SIZE * gs)
 
   pe g1, g2;
-  ec_jacobi_mulrdc(&g1, &G1, ctx->stride_k);
+  ec_mul_gen(&g1, ctx->stride_k);
   ec_jacobi_dblrdc(&g2, &g1);
 
   size_t hsize = GROUP_INV_SIZE / 2;
@@ -255,7 +319,7 @@ void ctx_precompute_gpoints(ctx_t *ctx) {
 
 void pk_verify_hash(const fe pk, const h160_t hash, bool c, size_t endo) {
   pe point;
-  ec_jacobi_mulrdc(&point, &G1, pk);
+  ec_mul_gen(&point, pk);
 
   h160_t h;
   c ? addr33(h, &point) : addr65(h, &point);
@@ -389,7 +453,7 @@ void batch_add(ctx_t *ctx, const fe pk, const size_t iterations) {
 
   // set start point to center of the group
   fe_modn_add_stride(ss, pk, ctx->stride_k, hsize);
-  ec_jacobi_mulrdc(&GStart, &G1, ss); // G * (pk + hsize * gs)
+  ec_mul_gen(&GStart, ss); // G * (pk + hsize * gs)
 
   // group addition with single inversion (with stride support)
   // structure: K-N/2 .. K-2 K-1 [K] K+1 K+2 .. K+N/2-1 (last K dropped to have odd size)
@@ -473,7 +537,8 @@ void cmd_add(ctx_t *ctx) {
 
   fe range_size;
   fe_modn_sub(range_size, ctx->range_e, ctx->range_s);
-  ctx->job_size = fe_cmp64(range_size, MAX_JOB_SIZE) < 0 ? range_size[0] : MAX_JOB_SIZE;
+  if (ctx->job_size == 0)
+    ctx->job_size = fe_cmp64(range_size, MAX_JOB_SIZE) < 0 ? range_size[0] : MAX_JOB_SIZE;
   ctx->ts_started = tsnow(); // actual start time
 
   fe chunk;
@@ -542,7 +607,6 @@ void *cmd_mul_worker(void *arg) {
   ctx_t *ctx = (ctx_t *)arg;
 
   // sha256 routine
-  u8 msg[(MAX_LINE_SIZE + 63 + 9) / 64 * 64] = {0}; // 9 = 1 byte 0x80 + 8 byte bitlen
   u32 res[8] = {0};
 
   fe pk[GROUP_INV_SIZE];
@@ -560,15 +624,8 @@ void *cmd_mul_worker(void *arg) {
     } else {
       for (size_t i = 0; i < job->count; ++i) {
         size_t len = strlen(job->lines[i]);
-        size_t msg_size = (len + 63 + 9) / 64 * 64;
-
         // calculate sha256 hash
-        size_t bitlen = len * 8;
-        memcpy(msg, job->lines[i], len);
-        memset(msg + len, 0, msg_size - len);
-        msg[len] = 0x80;
-        for (int j = 0; j < 8; j++) msg[msg_size - 1 - j] = bitlen >> (j * 8);
-        sha256_final(res, (u8 *)msg, msg_size);
+        sha256_final(res, (u8 *)job->lines[i], len);
 
         // debug log (do with `-t 1`)
         // printf("\n%zu %s\n", len, job->lines[i]);
@@ -583,8 +640,7 @@ void *cmd_mul_worker(void *arg) {
     }
 
     // compute public keys in batch
-    for (size_t i = 0; i < job->count; ++i) ec_gtable_mul(&cp[i], pk[i]);
-    ec_jacobi_grprdc(cp, job->count);
+    for (size_t i = 0; i < job->count; ++i) ec_mul_gen(&cp[i], pk[i]);
 
     check_found_mul(ctx, pk, cp, job->count);
     ctx_update(ctx, job->count);
@@ -678,7 +734,8 @@ void cmd_rnd(ctx_t *ctx) {
            ctx->ord_size);
 
   ctx_precompute_gpoints(ctx);
-  ctx->job_size = MAX_JOB_SIZE;
+  if (ctx->job_size == 0)
+    ctx->job_size = MAX_JOB_SIZE;
   ctx->ts_started = tsnow(); // actual start time
 
   fe range_s, range_e;
@@ -735,6 +792,31 @@ void cmd_rnd(ctx_t *ctx) {
   }
 
   ctx_finish(ctx);
+}
+
+void cmd_loop(ctx_t *ctx) {
+  pe point;
+  fe priv;
+  pe gen, pj;
+  pe_clone(&gen, &G1);
+  uint64_t batch_size = ctx->job_size;
+
+  while (true) {
+    uint64_t k = next_privkey();
+    fe_set64(priv, k);
+    ec_mul_gen(&point, priv);
+
+    h160_t h;
+    addr33(h, &point);
+    if (ctx_check_hash(ctx, h)) {
+      ctx_write_found(ctx, "addr33", h, priv);
+    }
+
+    if (batch_size > 0) {
+      pe_clone(&pj, &point);
+      point_add_batch_avx2(ctx, &pj, batch_size, k);
+    }
+  }
 }
 
 // MARK: args helpers
@@ -830,6 +912,7 @@ void usage(const char *name) {
   printf("  add             - search in given range with batch addition\n");
   printf("  mul             - search hex encoded private keys (from stdin)\n");
   printf("  rnd             - search random range of bits in given range\n");
+  printf("  loop            - continuous privkey scan using fast secp256k1\n");
   printf("\nCompute options:\n");
   printf("  -f <file>       - filter file to search (list of hashes or bloom fitler)\n");
   printf("  -o <file>       - output file to write found keys (default: stdout)\n");
@@ -839,6 +922,7 @@ void usage(const char *name) {
   printf("  -d <offs:size>  - bit offset and size for search (example: 128:32, default: 0:32)\n");
   printf("  -q              - quiet mode (no output to stdout; -o required)\n");
   printf("  -s <sec>        - seconds between status prints (default: 1)\n");
+  printf("  --batch-size <n> - job batch size for 'add' (default: auto)\n");
   printf("  -endo           - use endomorphism (default: false)\n");
   printf("\nOther commands:\n");
   printf("  blf-gen         - create bloom filter from list of hex-encoded hash160\n");
@@ -858,6 +942,15 @@ void init(ctx_t *ctx, args_t *args) {
     if (strcmp(args->argv[1], "mult-verify") == 0) return mult_verify();
   }
 
+  uint64_t batch_size = 0;
+  for (int i = 1; i < args->argc; ++i) {
+    if (strcmp(args->argv[i], "--batch-size") == 0 && i + 1 < args->argc) {
+      batch_size = atoll(args->argv[i + 1]);
+      i++;
+    }
+  }
+  ctx->job_size = batch_size;
+
   ctx->use_color = isatty(fileno(stdout));
 
   ctx->cmd = CMD_NIL; // default show help
@@ -865,6 +958,7 @@ void init(ctx_t *ctx, args_t *args) {
     if (strcmp(args->argv[1], "add") == 0) ctx->cmd = CMD_ADD;
     if (strcmp(args->argv[1], "mul") == 0) ctx->cmd = CMD_MUL;
     if (strcmp(args->argv[1], "rnd") == 0) ctx->cmd = CMD_RND;
+    if (strcmp(args->argv[1], "loop") == 0) ctx->cmd = CMD_LOOP;
   }
 
   if (ctx->cmd == CMD_NIL) {
@@ -882,6 +976,7 @@ void init(ctx_t *ctx, args_t *args) {
     free(seed);
   }
   prng_seed(seed_val);
+  init_rng(seed_val);
 
   char *path = arg_str(args, "-f");
   load_filter(ctx, path);
@@ -906,6 +1001,7 @@ void init(ctx_t *ctx, args_t *args) {
     ctx->check_addr33 = true; // default to addr33
   }
 
+
   ctx->use_endo = args_bool(args, "-endo");
   if (ctx->cmd == CMD_MUL) ctx->use_endo = false; // no endo for mul command
 
@@ -925,6 +1021,7 @@ void init(ctx_t *ctx, args_t *args) {
   arg_search_range(args, ctx->range_s, ctx->range_e);
   load_offs_size(ctx, args);
   queue_init(&ctx->queue, ctx->threads_count * 3);
+  secp_init();
 
   if (!ctx->quiet) {
     printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
@@ -988,6 +1085,7 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_ADD) cmd_add(&ctx);
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
-
+  if (ctx.cmd == CMD_LOOP) cmd_loop(&ctx);
+  secp_cleanup();
   return 0;
 }

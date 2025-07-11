@@ -11,6 +11,7 @@ A high-performance, CPU-optimized tool for computing public keys on the secp256k
 - 🍇 Precomputed tables for point multiplication
 - 🔍 Search for compressed and uncompressed public keys (hash160)
 - 🌟 Accelerated SHA-256 with SHA extension (both ARM and x86)
+- ⚡ Integrates `secp256k1_fast_unsafe` for very fast scalar multiplication
 - 🚀 Accelerated RIPEMD-160 [using SIMD](https://vladkens.cc/rmd160-simd/) (AVX2/NEON)
 - 🎲 Random search within customizable bit ranges
 - 🍎 Works seamlessly on macOS and Linux
@@ -21,6 +22,9 @@ A high-performance, CPU-optimized tool for computing public keys on the secp256k
 ```sh
 git clone https://github.com/vladkens/ecloop.git && cd ecloop
 make build
+# The build automatically compiles the bundled
+# `secp256k1_fast_unsafe` library with window size w=9
+# for optimal scalar multiplication performance.
 ```
 
 _\* On macOS, you may need to run `xcode-select --install` first._
@@ -43,6 +47,7 @@ Compute commands:
   add             - search in given range with batch addition
   mul             - search hex encoded private keys (from stdin)
   rnd             - search random range of bits in given range
+  loop            - continuous privkey scan using fast secp256k1
 
 Compute options:
   -f <file>       - filter file to search (list of hashes or bloom fitler)
@@ -51,6 +56,7 @@ Compute options:
   -a <addr_type>  - address type to search: c - addr33, u - addr65 (default: c)
   -r <range>      - search range in hex format (example: 8000:ffff, default all)
   -q              - quiet mode (no output to stdout; -o required)
+  --batch-size <n> - number of sequential additions after each pivot key
   -endo           - use endomorphism (default: false)
 
 Other commands:

@@ -357,6 +357,18 @@ static void secp256k1_gej_add_var(secp256k1_gej *r, const secp256k1_gej *a, cons
     secp256k1_fe_add(&r->y, &h3);
 }
 
+/* Compute successive additions of the same point `g` starting from `base`.
+ * The first output is `base`, and each subsequent element is the sum of the
+ * previous result and `g`. This utility is meant as a drop-in replacement for
+ * repeated calls to secp256k1_gej_add_var when generating tables. */
+static void point_add8_avx2(secp256k1_gej out[8], const secp256k1_gej *base,
+                            const secp256k1_gej *g) {
+    out[0] = *base;
+    for (int i = 1; i < 8; ++i) {
+        secp256k1_gej_add_var(&out[i], &out[i - 1], g, NULL);
+    }
+}
+
 static void secp256k1_gej_add_ge_var(secp256k1_gej *r, const secp256k1_gej *a, const secp256k1_ge *b, secp256k1_fe *rzr) {
     /* 8 mul, 3 sqr, 4 normalize, 12 mul_int/add/negate */
     secp256k1_fe z12, u1, u2, s1, s2, h, i, i2, h2, h3, t;

@@ -15,7 +15,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include "xoshiro256ss.h"
+#include "../xoshiro256pp.h"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -81,30 +81,30 @@ static void _close_urandom(void) {
   }
 }
 
-// xoshiro256** PRNG state
-static struct xoshiro256ss xrng __attribute__((aligned(64)));
+// xoshiro256++ PRNG state (thread local)
+static __thread struct xoshiro256pp xrng __attribute__((aligned(64)));
 #define XRNG_BUF_SIZE 4096
-static u64 xrng_buf[XRNG_BUF_SIZE] __attribute__((aligned(64)));
-static size_t xrng_idx = XRNG_BUF_SIZE;
+static __thread uint64_t xrng_buf[XRNG_BUF_SIZE] __attribute__((aligned(64)));
+static __thread size_t xrng_idx = XRNG_BUF_SIZE;
 
 void prng_seed(u64 seed) {
-  xoshiro256ss_init(&xrng, seed);
+  xoshiro256pp_init(&xrng, seed);
   xrng_idx = XRNG_BUF_SIZE;
 }
 
 INLINE u64 prng_next64() {
   if (xrng_idx >= XRNG_BUF_SIZE) {
-    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
-                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+    xoshiro256pp_next8(&xrng, xrng_buf);
+    xoshiro256pp_next8(&xrng, xrng_buf + 4);
     xrng_idx = 0;
   }
   return xrng_buf[xrng_idx++];
 }
 
-void prng_next8(u64 out[8]) {
+void prng_next8(uint64_t out[8]) {
   if (xrng_idx + 8 > XRNG_BUF_SIZE) {
-    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
-                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+    xoshiro256pp_next8(&xrng, xrng_buf);
+    xoshiro256pp_next8(&xrng, xrng_buf + 4);
     xrng_idx = 0;
   }
   memcpy(out, &xrng_buf[xrng_idx], 8 * sizeof(u64));
@@ -148,7 +148,7 @@ u32 encode_seed(const char *seed) {
 // MARK: fe_random
 
 void fe_prand(fe r) {
-  __attribute__((aligned(64))) u64 buf[8];
+  __attribute__((aligned(64))) uint64_t buf[8];
   prng_next8(buf);
   for (int i = 0; i < 4; ++i) r[i] = buf[i];
   r[3] &= 0xfffffffefffffc2f;
