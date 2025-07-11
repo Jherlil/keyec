@@ -82,8 +82,14 @@ static void secp256k1_ecmult_gen_context_build(secp256k1_ecmult_gen_context *ctx
         for (j = 0; j < 64; j++) {
             /* Set precj[j*16 .. j*16+15] to (numsbase, numsbase + gbase, ..., numsbase + 15*gbase). */
             precj[j*16] = numsbase;
-            for (i = 1; i < 16; i++) {
-                secp256k1_gej_add_var(&precj[j*16 + i], &precj[j*16 + i - 1], &gbase, NULL);
+            for (i = 1; i < 16; i += 8) {
+                secp256k1_gej tmp[8];
+                point_add8_avx2(tmp, &precj[j*16 + i - 1], &gbase);
+                int lim = 16 - i;
+                if (lim > 8) lim = 8;
+                for (int k = 0; k < lim; ++k) {
+                    precj[j*16 + i + k] = tmp[k];
+                }
             }
             /* Multiply gbase by 16. */
             for (i = 0; i < 4; i++) {
