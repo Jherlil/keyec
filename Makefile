@@ -19,8 +19,8 @@ build:
 	$(CC) -c -O3 -I./secp256k1_fast_unsafe -I./secp256k1_fast_unsafe/include -I./secp256k1_fast_unsafe/src -include secp256k1_fast_unsafe/src/basic-config.h -DUSE_BASIC_CONFIG -DSECP256K1_BUILD secp256k1_fast_unsafe/src/secp256k1.c -o secp256k1.o
 	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/flo-shani.c -o flo-shani.o
 	$(CC) -c -O3 -mavx2 -msha -Iflo-shani-aesni/sha256 flo-shani-aesni/sha256/sha256_vectorized.c -o sha256_vectorized.o
-	$(CC) $(CC_FLAGS) -DUSE_SECP256K1 -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-		main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o secp256k1.o flo-shani.o sha256_vectorized.o -o ecloop
+	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
+	main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o secp256k1.o flo-shani.o sha256_vectorized.o -o ecloop
 
 xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
 	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<

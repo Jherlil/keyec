@@ -11,7 +11,7 @@ A high-performance, CPU-optimized tool for computing public keys on the secp256k
 - 🍇 Precomputed tables for point multiplication
 - 🔍 Search for compressed and uncompressed public keys (hash160)
 - 🌟 Accelerated SHA-256 with SHA extension (both ARM and x86)
-- ⚡ Optional integration with `secp256k1_fast_unsafe` for very fast scalar multiplication
+- ⚡ Integrates `secp256k1_fast_unsafe` for very fast scalar multiplication
 - 🚀 Accelerated RIPEMD-160 [using SIMD](https://vladkens.cc/rmd160-simd/) (AVX2/NEON)
 - 🎲 Random search within customizable bit ranges
 - 🍎 Works seamlessly on macOS and Linux

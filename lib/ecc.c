@@ -577,11 +577,9 @@ GLOBAL pe G2 = {
     .z = {0x1, 0x0, 0x0, 0x0},
 };
 
-#ifndef USE_SECP256K1
 // Precomputed odd multiples of G for w=9 wNAF
 alignas(64) static pe precomp_table[256];
 static bool precomp_ready = false;
-#endif
 
 INLINE void pe_clone(pe *r, const pe *a) {
   memcpy(r, a, sizeof(pe));
@@ -895,7 +893,6 @@ bool ec_verify(const pe *p) {
   return g.y[0] == 7 && g.y[1] == 0 && g.y[2] == 0 && g.y[3] == 0;
 }
 
-#ifndef USE_SECP256K1
 static void wnaf_precompute(void) {
   if (precomp_ready) return;
 
@@ -971,7 +968,6 @@ static void scalar_mult(pe *r, const fe k) {
   } else {
     ec_jacobi_rdc(r, &acc);
   }
-#endif // USE_SECP256K1
 
 // MARK: EC GTable
 
@@ -980,9 +976,6 @@ pe *_gtable = NULL; // GTable for precomputed points
 
 // https://www.sav.sk/journals/uploads/0215094304C459.pdf (Algorithm 3)
 size_t ec_gtable_init() {
-#ifdef USE_SECP256K1
-  return 0;
-#else
   u64 n = 1 << _GTABLE_W;
   u64 d = ((256 - 1) / _GTABLE_W) + 1;
   u64 s = n * d - d;
@@ -1007,16 +1000,9 @@ size_t ec_gtable_init() {
 
   ec_jacobi_grprdc(_gtable, s);
   return mem_size;
-#endif
 }
-#ifdef USE_SECP256K1
-static int secp_mul_G(pe *r, const fe k);
-#endif
 
 void ec_gtable_mul(pe *r, const fe pk) {
-#ifdef USE_SECP256K1
-  secp_mul_G(r, pk);
-#else
   if (_gtable == NULL) {
     printf("GTable is not initialized\n");
     exit(1);
@@ -1038,64 +1024,7 @@ void ec_gtable_mul(pe *r, const fe pk) {
   }
 
   pe_clone(r, &q);
-#endif
 }
-#ifdef USE_SECP256K1
-#include "../secp256k1_fast_unsafe/include/secp256k1.h"
-static secp256k1_context *secp_ctx = NULL;
-
-void secp_init(void) {
-    if (!secp_ctx) secp_ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
-}
-
-void secp_cleanup(void) {
-    if (secp_ctx) {
-        secp256k1_context_destroy(secp_ctx);
-        secp_ctx = NULL;
-    }
-}
-
-static void fe_to_be32(unsigned char out[32], const fe a) {
-    for (int i = 0; i < 4; ++i) {
-        u64 v = a[i];
-        for (int j = 0; j < 8; ++j) {
-            out[31 - (i * 8 + j)] = v & 0xFF;
-            v >>= 8;
-        }
-    }
-}
-
-static void fe_from_be32(fe r, const unsigned char in[32]) {
-    for (int i = 0; i < 4; ++i) {
-        u64 v = 0;
-        for (int j = 0; j < 8; ++j) {
-            v = (v << 8) | in[i * 8 + j];
-        }
-        r[3 - i] = v;
-    }
-}
-
-int secp_mul_G(pe *r, const fe k) {
-    secp_init();
-    unsigned char sk[32];
-    fe_to_be32(sk, k);
-    secp256k1_pubkey pub;
-    if (!secp256k1_ec_pubkey_create(secp_ctx, &pub, sk)) return 0;
-    unsigned char out[65];
-    size_t len = 65;
-    secp256k1_ec_pubkey_serialize(secp_ctx, out, &len, &pub, SECP256K1_EC_UNCOMPRESSED);
-    fe_from_be32(r->x, out + 1);
-    fe_from_be32(r->y, out + 33);
-    fe_set64(r->z, 1);
-    return 1;
-}
-#endif
-
 void ec_mul_gen(pe *r, const fe k) {
-#ifdef USE_SECP256K1
-    secp_mul_G(r, k);
-#else
     scalar_mult(r, k);
-#endif
 }
-

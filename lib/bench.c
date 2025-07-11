@@ -15,9 +15,7 @@ void print_res(char *label, size_t stime, size_t iters) {
 }
 
 void run_bench() {
-#ifndef USE_SECP256K1
   ec_gtable_init();
-#endif
 
   // note: asserts used to prevent compiler optimization
   size_t stime, iters, i;
@@ -120,7 +118,6 @@ void run_bench_gtable() {
   for (size_t i = 0; i < numSize; ++i) fe_prand(numbers[i]);
 
   size_t iters = 1000 * 500;
-#ifndef USE_SECP256K1
   size_t stime;
   double gent, mult;
   pe g;
@@ -137,19 +134,13 @@ void run_bench_gtable() {
     mult = ((double)(tsnow() - stime)) / 1000;
 
     double mem = (double)mem_used / 1024 / 1024;                              // MB
-    printf("w=%02d: %.1fK it/s | gen: %5.2fs | mul: %5.2fs | mem: %8.1fMB\n", //
+    printf("w=%02d: %.1fK it/s | gen: %5.2fs | mul: %5.2fs | mem: %8.1fMB\n",
            i, iters / mult / 1000, gent, mult, mem);
   }
-#else
-  (void)iters; (void)numbers;
-  printf("gtable benchmark disabled when USE_SECP256K1 is set\n");
-#endif
 }
 
 void mult_verify() {
-#ifndef USE_SECP256K1
   ec_gtable_init();
-#endif
 
   pe r1, r2;
   fe pk;

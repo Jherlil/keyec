@@ -586,9 +586,7 @@ void *cmd_mul_worker(void *arg) {
 }
 
 void cmd_mul(ctx_t *ctx) {
-#ifndef USE_SECP256K1
   ec_gtable_init();
-#endif
 
   for (size_t i = 0; i < ctx->threads_count; ++i) {
     pthread_create(&ctx->threads[i], NULL, cmd_mul_worker, ctx);
@@ -899,9 +897,6 @@ void init(ctx_t *ctx, args_t *args) {
     ctx->check_addr33 = true; // default to addr33
   }
 
-#ifdef USE_SECP256K1
-  secp_init();
-#endif
 
   ctx->use_endo = args_bool(args, "-endo");
   if (ctx->cmd == CMD_MUL) ctx->use_endo = false; // no endo for mul command
@@ -986,9 +981,6 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
 
-#ifdef USE_SECP256K1
-  secp_cleanup();
-#endif
 
   return 0;
 }
