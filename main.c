@@ -917,6 +917,7 @@ void init(ctx_t *ctx, args_t *args) {
   arg_search_range(args, ctx->range_s, ctx->range_e);
   load_offs_size(ctx, args);
   queue_init(&ctx->queue, ctx->threads_count * 3);
+  secp_init();
 
   if (!ctx->quiet) {
     printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
@@ -980,7 +981,6 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_ADD) cmd_add(&ctx);
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
-
-
+  secp_cleanup();
   return 0;
 }

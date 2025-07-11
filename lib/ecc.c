@@ -13,7 +13,19 @@
 #include <stdalign.h>
 
 #include "compat.c"
+#include "../secp256k1_fast_unsafe/include/secp256k1.h"
 #define GLOBAL static const
+
+static secp256k1_context *secp_ctx = NULL;
+
+INLINE void secp_init(void) {
+  if (!secp_ctx) secp_ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
+}
+
+INLINE void secp_cleanup(void) {
+  if (secp_ctx) secp256k1_context_destroy(secp_ctx);
+  secp_ctx = NULL;
+}
 
 INLINE u64 umul128(const u64 a, const u64 b, u64 *hi) {
   // https://stackoverflow.com/a/50958815
@@ -932,42 +944,36 @@ static int wnaf_9(int8_t out[], const fe k) {
 }
 
 static void scalar_mult(pe *r, const fe k) {
-  wnaf_precompute();
-
-  int8_t wnaf[260] = {0};
-  int bits = wnaf_9(wnaf, k);
-
-  pe acc = {0};
-  fe_set64(acc.z, 1);
-  bool first = true;
-  pe tmp;
-  for (int i = bits - 1; i >= 0; --i) {
-    if (!first) ec_jacobi_dbl(&acc, &acc);
-    int8_t v = wnaf[i];
-    if (v) {
-      const pe *p;
-      if (v > 0) {
-        p = &precomp_table[(v - 1) >> 1];
-      } else {
-        pe_clone(&tmp, &precomp_table[((-v) - 1) >> 1]);
-        fe_modp_neg(tmp.y, tmp.y);
-        p = &tmp;
-      }
-      if (first) {
-        pe_clone(&acc, p);
-        first = false;
-      } else {
-        ec_jacobi_add(&acc, &acc, p);
-      }
-    }
+  secp_init();
+  unsigned char sk[32];
+  for (int i = 0; i < 4; ++i) {
+    u64 be = swap64(k[3 - i]);
+    memcpy(sk + i * 8, &be, 8);
   }
-  if (first) {
+  secp256k1_pubkey pub;
+  if (!secp256k1_ec_pubkey_create(secp_ctx, &pub, sk)) {
     fe_set64(r->x, 0);
     fe_set64(r->y, 0);
     fe_set64(r->z, 1);
-  } else {
-    ec_jacobi_rdc(r, &acc);
+    return;
   }
+  unsigned char out[65];
+  size_t outlen = sizeof(out);
+  secp256k1_ec_pubkey_serialize(secp_ctx, out, &outlen, &pub,
+                                SECP256K1_EC_UNCOMPRESSED);
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 1 + i * 8, 8);
+    r->x[3 - i] = swap64(be);
+  }
+  for (int i = 0; i < 4; ++i) {
+    u64 be;
+    memcpy(&be, out + 33 + i * 8, 8);
+    r->y[3 - i] = swap64(be);
+  }
+  fe_set64(r->z, 1);
+}
+
 
 // MARK: EC GTable
 
