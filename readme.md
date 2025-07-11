@@ -52,6 +52,7 @@ Compute options:
   -a <addr_type>  - address type to search: c - addr33, u - addr65 (default: c)
   -r <range>      - search range in hex format (example: 8000:ffff, default all)
   -q              - quiet mode (no output to stdout; -o required)
+  --batch-size <n> - number of sequential additions after each pivot key
   -endo           - use endomorphism (default: false)
 
 Other commands:

@@ -40,26 +40,19 @@ uint64_t next_privkey() {
 typedef struct { fe x, y, z; } secp256k1_gej;
 typedef struct { fe x, y; } secp256k1_ge;
 
+// forward declaration for context structure
+struct ctx_t;
+
 /*
- * Simplified batch point addition placeholder. It iteratively adds the
- * generator point G to P and hashes each intermediate public key. The
- * hashing code mirrors addr33() from addr.c but does not report hits.
+ * Add the generator point to `P` sequentially `batch_size` times and check
+ * each resulting public key. `start_k` is the private key of `P`.
  */
-static void point_add_batch_avx2(secp256k1_gej *P, const secp256k1_gej *G,
-                                 uint64_t batch_size) {
-  pe r, g;
-  memcpy(&r, P, sizeof(pe));
-  memcpy(&g, G, sizeof(pe));
-
-  h160_t h;
-  for (uint64_t i = 0; i < batch_size; ++i) {
-    ec_jacobi_addrdc(&r, &r, &g);
-    addr33(h, &r);
-    /* hit check and reporting would go here */
-  }
-
-  memcpy(P, &r, sizeof(pe));
-}
+static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
+                                 const secp256k1_gej *G,
+                                 uint64_t batch_size, uint64_t start_k);
+static void ctx_write_found(struct ctx_t *ctx, const char *label,
+                            const h160_t hash, const fe pk);
+static bool ctx_check_hash(struct ctx_t *ctx, const h160_t h);
 
 enum Cmd { CMD_NIL, CMD_ADD, CMD_MUL, CMD_RND, CMD_LOOP };
 
@@ -115,6 +108,29 @@ typedef struct add_job_t {
   fe start;
   fe end;
 } add_job_t;
+
+// -----------------------------------------------------------------------------
+// Batch point addition helper
+static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
+                                 const secp256k1_gej *G,
+                                 uint64_t batch_size, uint64_t start_k) {
+  pe r, g;
+  memcpy(&r, P, sizeof(pe));
+  memcpy(&g, G, sizeof(pe));
+
+  h160_t h;
+  fe pk;
+  for (uint64_t i = 1; i <= batch_size; ++i) {
+    ec_jacobi_addrdc(&r, &r, &g);
+    addr33(h, &r);
+    fe_set64(pk, start_k + i);
+    if (ctx_check_hash(ctx, h)) {
+      ctx_write_found(ctx, "addr33", h, pk);
+    }
+  }
+
+  memcpy(P, &r, sizeof(pe));
+}
 
 void load_filter(ctx_t *ctx, const char *filepath) {
   if (!filepath) {
@@ -791,7 +807,7 @@ void cmd_loop(ctx_t *ctx) {
 
     if (batch_size > 0) {
       memcpy(&pj, &point, sizeof(pe));
-      point_add_batch_avx2(&pj, &gen, batch_size);
+      point_add_batch_avx2(ctx, &pj, &gen, batch_size, k);
     }
   }
 }
