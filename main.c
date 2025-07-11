@@ -120,10 +120,29 @@ static void point_add_batch_avx2(struct ctx_t *ctx, secp256k1_gej *P,
 
   h160_t h;
   fe pk;
-  for (uint64_t i = 1; i <= batch_size; ++i) {
+  uint64_t i = 0;
+
+  while (i + 8 <= batch_size) {
+    pe r8[8];
+    pe_clone(&r8[0], &r);
+    for (int j = 1; j < 8; ++j) {
+      ec_jacobi_addrdc(&r8[j], &r8[j - 1], &g);
+    }
+    for (int j = 0; j < 8; ++j) {
+      addr33(h, &r8[j]);
+      fe_set64(pk, start_k + i + j + 1);
+      if (ctx_check_hash(ctx, h)) {
+        ctx_write_found(ctx, "addr33", h, pk);
+      }
+    }
+    ec_jacobi_addrdc(&r, &r8[7], &g);
+    i += 8;
+  }
+
+  for (; i < batch_size; ++i) {
     ec_jacobi_addrdc(&r, &r, &g);
     addr33(h, &r);
-    fe_set64(pk, start_k + i);
+    fe_set64(pk, start_k + i + 1);
     if (ctx_check_hash(ctx, h)) {
       ctx_write_found(ctx, "addr33", h, pk);
     }
