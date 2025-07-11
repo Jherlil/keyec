@@ -121,7 +121,6 @@ void run_bench_gtable() {
   size_t stime;
   double gent, mult;
   pe g;
-
   size_t mem_used;
   for (int i = 8; i <= 22; i += 2) {
     _GTABLE_W = i;
@@ -135,7 +134,7 @@ void run_bench_gtable() {
     mult = ((double)(tsnow() - stime)) / 1000;
 
     double mem = (double)mem_used / 1024 / 1024;                              // MB
-    printf("w=%02d: %.1fK it/s | gen: %5.2fs | mul: %5.2fs | mem: %8.1fMB\n", //
+    printf("w=%02d: %.1fK it/s | gen: %5.2fs | mul: %5.2fs | mem: %8.1fMB\n",
            i, iters / mult / 1000, gent, mult, mem);
   }
 }
@@ -148,11 +147,10 @@ void mult_verify() {
   for (int i = 0; i < 1000 * 16; ++i) {
     fe_set64(pk, i + 2);
 
-    ec_jacobi_mulrdc(&r1, &G1, pk);
+    ec_mul_gen(&r1, pk);
     ec_verify(&r1);
 
-    ec_gtable_mul(&r2, pk);
-    ec_jacobi_rdc(&r2, &r2);
+    ec_mul_gen(&r2, pk);
     ec_verify(&r2);
 
     if (memcmp(&r1, &r2, sizeof(pe)) != 0) {
