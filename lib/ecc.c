@@ -561,7 +561,7 @@ void fe_modp_grpinv(fe r[], const u32 n) {
 // https://eprint.iacr.org/2015/1060.pdf
 // https://hyperelliptic.org/EFD/g1p/auto-shortw.html
 
-typedef struct pe {
+typedef struct __attribute__((aligned(64))) pe {
   fe x, y, z;
 } pe;
 
@@ -1027,4 +1027,15 @@ void ec_gtable_mul(pe *r, const fe pk) {
 }
 void ec_mul_gen(pe *r, const fe k) {
     scalar_mult(r, k);
+}
+
+void scalar_mult_start(pe *r, const fe k) {
+  scalar_mult(r, k);
+}
+
+void scalar_mult_add(pe *r, size_t n) {
+  for (size_t i = 0; i < n; ++i) {
+    ec_jacobi_add(r, r, &G1);
+  }
+  ec_jacobi_rdc(r, r);
 }

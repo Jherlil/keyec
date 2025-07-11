@@ -15,7 +15,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include "xoshiro256pp.h"
+#include "../xoshiro256pp.h"
 
 #ifdef _WIN32
   #include <windows.h>

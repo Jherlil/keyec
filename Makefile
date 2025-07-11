@@ -2,7 +2,7 @@
 
 CC = cc
 NASM = nasm
-CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
+CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra -DNO_SIMD
 
 ifeq ($(shell uname -m),x86_64)
 CC_FLAGS += -march=x86-64-v2 -mavx2 -pthread -lpthread

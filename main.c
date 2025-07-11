@@ -55,8 +55,8 @@ typedef struct ctx_t {
   fe range_s;  // search range start
   fe range_e;  // search range end
   fe stride_k; // precomputed stride key (step for G-points, 2^offset)
-  pe stride_p; // precomputed stride point (G * pk)
-  pe gpoints[GROUP_INV_SIZE];
+  pe stride_p __attribute__((aligned(64))); // precomputed stride point (G * pk)
+  pe gpoints[GROUP_INV_SIZE] __attribute__((aligned(64)));
   size_t job_size;
 
   // cmd mul
