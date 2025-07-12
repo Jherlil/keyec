@@ -724,7 +724,7 @@ void _ec_jacobi_rdc1(pe *r, const pe *a) {
 }
 
 void _ec_jacobi_grprdc1(pe r[], u64 n) {
-  fe *zz = (fe *)malloc(n * sizeof(fe));
+  fe *zz = aligned_alloc(32, n * sizeof(fe));
   for (u64 i = 0; i < n; ++i) fe_clone(zz[i], r[i].z);
   fe_modp_grpinv(zz, n);
 
@@ -886,6 +886,14 @@ INLINE void ec_jacobi_mulrdc(pe *r, const pe *p, const fe k) {
 INLINE void ec_jacobi_dblrdc(pe *r, const pe *p) {
   ec_jacobi_dbl(r, p);
   ec_jacobi_rdc(r, r);
+}
+
+void ec_jacobi_add_batch_avx2(pe r[], const pe p[], size_t n) {
+#if defined(__AVX2__)
+  for (size_t i = 0; i < n; ++i) ec_jacobi_add(r + i, r + i, p + i);
+#else
+  for (size_t i = 0; i < n; ++i) ec_jacobi_add(r + i, r + i, p + i);
+#endif
 }
 
 bool ec_verify(const pe *p) {

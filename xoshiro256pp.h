@@ -14,5 +14,7 @@ struct xoshiro256pp {
 
 int xoshiro256pp_init(struct xoshiro256pp *rng, uint64_t seed);
 void xoshiro256pp_next8(struct xoshiro256pp *rng, uint64_t out[8]);
+uint64_t xoshiro256pp_next_u64(uint64_t s[4]);
+void xoshiro256pp_jump(uint64_t s[4]);
 
 #endif /* XOSHIRO256PP_H */
