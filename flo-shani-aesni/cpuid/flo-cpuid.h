@@ -32,6 +32,8 @@ void openssl_caps();
 void openssl_version();
 int hasSHANI();
 void disableSHANI();
+int hasAVX2();
+int hasPCLMUL();
 
 #ifdef __cplusplus
 }
