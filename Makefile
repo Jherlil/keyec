@@ -2,7 +2,11 @@
 
 CC = cc
 NASM = nasm
-CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra -DNO_SIMD
+SIMD ?= 1
+CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
+ifeq ($(SIMD),0)
+CC_FLAGS += -DNO_SIMD
+endif
 
 ## Optimized build flags
 CFLAGS += -march=native -mavx2 -maes -msha -funroll-loops -O3 -ffast-math -pthread
