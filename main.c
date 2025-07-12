@@ -7,7 +7,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <immintrin.h>
-#include "secp256k1.h"
+#include <stdint.h>
 #include "flo-cpuid.h"
 #include "xoshiro256plusplus.h"
 #include "sha256.h"
@@ -120,7 +120,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
 
     pe_clone(&pts[0], &r);
     for (uint64_t j = 1; j < chunk; ++j) {
-      secp_point_add_G(&pts[j], &pts[j - 1]);
+      ec_jacobi_addrdc(&pts[j], &pts[j - 1], &G1);
     }
 
     addr33_batch(hashes, pts, chunk);
@@ -132,7 +132,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
       }
     }
 
-    secp_point_add_G(&r, &pts[chunk - 1]);
+    ec_jacobi_addrdc(&r, &pts[chunk - 1], &G1);
     start_k += chunk;
     batch_size -= chunk;
   }
@@ -1029,7 +1029,6 @@ void init(ctx_t *ctx, args_t *args) {
     exit(1);
   }
 #endif
-  secp_init();
 
   if (!ctx->quiet) {
     printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
@@ -1094,6 +1093,5 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
   if (ctx.cmd == CMD_LOOP) cmd_loop(&ctx);
-  secp_cleanup();
   return 0;
 }
