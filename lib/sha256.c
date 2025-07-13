@@ -5,6 +5,10 @@
 #pragma once
 #include "compat.c"
 
+#ifdef USE_OPENCL
+int sha256_opencl_batch(u32 *out, const u8 *data, size_t blocks, size_t count);
+#endif
+
 static const u32 SHA256_K[64] = {
     0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5, 0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
     0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3, 0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
@@ -25,6 +29,10 @@ static const u32 SHA256_IV[8] = {
   #include <arm_neon.h>
 
 void sha256_final(u32 state[8], const u8 data[], u32 length) {
+#ifdef USE_OPENCL
+  if (length % 64 == 0 && sha256_opencl_batch(state, data, length/64, 1))
+    return;
+#endif
   uint32x4_t STATE0, STATE1, ABEF_SAVE, CDGH_SAVE;
   uint32x4_t MSG0, MSG1, MSG2, MSG3;
   uint32x4_t TMP0, TMP1, TMP2;
@@ -192,6 +200,10 @@ void sha256_final(u32 state[8], const u8 data[], u32 length) {
   #include <immintrin.h>
 
 void sha256_final(u32 state[8], const u8 data[], u32 length) {
+#ifdef USE_OPENCL
+  if (length % 64 == 0 && sha256_opencl_batch(state, data, length/64, 1))
+    return;
+#endif
   __m128i STATE0, STATE1;
   __m128i MSG, TMP;
   __m128i MSG0, MSG1, MSG2, MSG3;
@@ -397,6 +409,10 @@ static inline void ROUND(u32 a, u32 b, u32 c, u32 *d, u32 e, u32 f, u32 g, u32 *
 }
 
 void sha256_final(u32 state[8], const u8 data[], u32 length) {
+#ifdef USE_OPENCL
+  if (length % 64 == 0 && sha256_opencl_batch(state, data, length/64, 1))
+    return;
+#endif
   u32 s0, s1;
   u32 a, b, c, d, e, f, g, h;
   for (int i = 0; i < 8; i++) state[i] = SHA256_IV[i];

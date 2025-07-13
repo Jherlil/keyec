@@ -11,6 +11,9 @@
 #include "lib/bench.c"
 #include "lib/ecc.c"
 #include "lib/utils.c"
+#ifdef USE_OPENCL
+int ecc_mul_opencl_batch(pe *out, const fe *scalars, size_t count);
+#endif
 
 #define VERSION "0.5.0"
 #define MAX_JOB_SIZE 1024 * 1024 * 2
@@ -583,8 +586,18 @@ void *cmd_mul_worker(void *arg) {
     }
 
     // compute public keys in batch
-    for (size_t i = 0; i < job->count; ++i) ec_gtable_mul(&cp[i], pk[i]);
-    ec_jacobi_grprdc(cp, job->count);
+#ifdef USE_OPENCL
+    if (!ecc_mul_opencl_batch(cp, pk, job->count)) {
+#endif
+      for (size_t i = 0; i < job->count; ++i) ec_gtable_mul(&cp[i], pk[i]);
+      ec_jacobi_grprdc(cp, job->count);
+#ifdef USE_OPENCL
+    } else {
+      for (size_t i = 0; i < job->count; ++i) {
+        cp[i].z[0] = 1; cp[i].z[1] = 0; cp[i].z[2] = 0; cp[i].z[3] = 0;
+      }
+    }
+#endif
 
     check_found_mul(ctx, pk, cp, job->count);
     ctx_update(ctx, job->count);

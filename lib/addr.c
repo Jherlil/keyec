@@ -15,6 +15,11 @@
 #define HASH_BATCH_SIZE ((size_t)RMD_LEN)
 typedef u32 h160_t[5];
 
+#ifdef USE_OPENCL
+int addr33_opencl_batch(u32 *out, const pe *points, size_t count);
+int addr65_opencl_batch(u32 *out, const pe *points, size_t count);
+#endif
+
 int compare_160(const void *a, const void *b) {
   const u32 *ua = (const u32 *)a;
   const u32 *ub = (const u32 *)b;
@@ -98,6 +103,9 @@ void addr65(u32 *r, const pe *point) {
 
 void addr33_batch(h160_t *hashes, const pe *points, size_t count) {
   assert(count <= HASH_BATCH_SIZE);
+#ifdef USE_OPENCL
+  if (addr33_opencl_batch((u32 *)hashes, points, count)) return;
+#endif
   u8 msg[HASH_BATCH_SIZE][64] = {0}; // sha256 payload
   u32 rs[HASH_BATCH_SIZE][16] = {0}; // sha256 output and rmd160 input
 
@@ -115,6 +123,9 @@ void addr33_batch(h160_t *hashes, const pe *points, size_t count) {
 
 void addr65_batch(h160_t *hashes, const pe *points, size_t count) {
   assert(count <= HASH_BATCH_SIZE);
+#ifdef USE_OPENCL
+  if (addr65_opencl_batch((u32 *)hashes, points, count)) return;
+#endif
   u8 msg[HASH_BATCH_SIZE][128] = {0}; // sha256 payload
   u32 rs[HASH_BATCH_SIZE][16] = {0};  // sha256 output and rmd160 input
 
