@@ -5,8 +5,16 @@ NASM = nasm
 CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra -DUSE_OPENCL
 LDLIBS ?= -lOpenCL
 
+# Windows cross compilation support
+EXE ?=
+NASM_FMT ?= elf64
+ifeq ($(OS),Windows_NT)
+    EXE := .exe
+    NASM_FMT := win64
+endif
+
 ifeq ($(shell uname -m),x86_64)
-        CC_FLAGS += -march=native -mavx2 -pthread -lpthread
+	CC_FLAGS += -march=native -mavx2 -pthread -lpthread
 endif
 
 default: build
@@ -16,16 +24,16 @@ clean:
 
 build:
 	$(MAKE) clean
-	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o
+	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o NASM_FMT=$(NASM_FMT)
 	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-                     main.c xoshiro256ss-avx/xoshiro256ss.c lib/rmd160_opencl.c lib/ecc_opencl.c lib/addr_opencl.c lib/sha256_opencl.c lib/utils_opencl.c lib/xoshiro_opencl.c \
-                                xoshiro256ss-avx/xoshiro256ss.o $(LDLIBS) -o ecloop
+	             main.c xoshiro256ss-avx/xoshiro256ss.c lib/rmd160_opencl.c lib/ecc_opencl.c lib/addr_opencl.c lib/sha256_opencl.c lib/utils_opencl.c lib/xoshiro_opencl.c \
+	                        xoshiro256ss-avx/xoshiro256ss.o $(LDLIBS) -o ecloop$(EXE)
 		
 xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
-	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
+	$(NASM) -Ox -f$(NASM_FMT) -DXOSHIRO256SS_TECH=1 -o $@ $<
 
 bench: build
-	./ecloop bench
+	./ecloop$(EXE) bench
 
 fmt:
 	@find . -name '*.c' | xargs clang-format -i
@@ -33,27 +41,27 @@ fmt:
 # -----------------------------------------------------------------------------
 
 add: build
-	./ecloop add -f data/btc-puzzles-hash -r 8000:ffffff
+	./ecloop$(EXE) add -f data/btc-puzzles-hash -r 8000:ffffff
 
 mul: build
-	cat data/btc-bw-priv | ./ecloop mul -f data/btc-bw-hash -a cu -q -o /dev/null
+	cat data/btc-bw-priv | ./ecloop$(EXE) mul -f data/btc-bw-hash -a cu -q -o /dev/null
 
 rnd: build
-	./ecloop rnd -f data/btc-puzzles-hash -r 800000000000000000:ffffffffffffffffff -d 0:32
+	./ecloop$(EXE) rnd -f data/btc-puzzles-hash -r 800000000000000000:ffffffffffffffffff -d 0:32
 
 blf: build
 	@rm -rf /tmp/test.blf
 	@printf "\n> "
-	cat data/btc-puzzles-hash | ./ecloop blf-gen -n 32768 -o /tmp/test.blf
+	cat data/btc-puzzles-hash | ./ecloop$(EXE) blf-gen -n 32768 -o /tmp/test.blf
 	@printf "\n> "
-	cat data/btc-bw-hash | ./ecloop blf-gen -n 32768 -o /tmp/test.blf
+	cat data/btc-bw-hash | ./ecloop$(EXE) blf-gen -n 32768 -o /tmp/test.blf
 	@printf "\n> "
-	./ecloop add -f /tmp/test.blf -r 8000:ffffff -q -o /dev/null
+	./ecloop$(EXE) add -f /tmp/test.blf -r 8000:ffffff -q -o /dev/null
 	@printf "\n> "
-	cat data/btc-bw-priv | ./ecloop mul -f /tmp/test.blf -a cu -q -o /dev/null
+	cat data/btc-bw-priv | ./ecloop$(EXE) mul -f /tmp/test.blf -a cu -q -o /dev/null
 
 verify: build
-	./ecloop mult-verify
+	./ecloop$(EXE) mult-verify
 
 # -----------------------------------------------------------------------------
 # https://btcpuzzle.info/puzzle
@@ -76,7 +84,7 @@ _RANGES_ = $(foreach r,$(filter range_%,$(.VARIABLES)),$(patsubst range_%,%,$r))
 
 puzzle: build
 	@$(if $(filter $(_RANGES_),$(n)),,$(error "Invalid range $(n)"))
-	./ecloop rnd -f data/btc-puzzles-hash -d 0:32 -r $(range_$(n)) -o ./found_$(n).txt
+	./ecloop$(EXE) rnd -f data/btc-puzzles-hash -d 0:32 -r $(range_$(n)) -o ./found_$(n).txt
 
 %:
 	@$(if $(filter $(_RANGES_),$@),make --no-print-directory puzzle n=$@,)

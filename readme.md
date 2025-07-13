@@ -187,6 +187,17 @@ Here are the steps I followed to run `ecloop` on Windows:
 
 If no errors appear, `ecloop` has been compiled successfully and is ready to use. For example, you can run a benchmark with: `./ecloop bench`.
 
+## Build on Windows with MinGW
+
+Install [MinGW-w64](https://www.mingw-w64.org/) and an OpenCL SDK from your GPU vendor. Then open the MinGW shell and run:
+
+```sh
+git clone https://github.com/vladkens/ecloop.git && cd ecloop
+mingw32-make build CC=x86_64-w64-mingw32-gcc EXE=.exe NASM_FMT=win64
+```
+
+The resulting `ecloop.exe` will run natively on Windows.
+
 ## Performance compare
 
 Tests were done on an Intel N100.
