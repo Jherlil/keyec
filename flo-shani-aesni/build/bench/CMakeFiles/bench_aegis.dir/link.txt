@@ -1,1 +1,0 @@
-/usr/bin/cc -rdynamic CMakeFiles/bench_aegis.dir/bench_aegis.c.o -o ../bin/bench_aegis  ../lib/libflo-aegis.a ../lib/libflo-cpuid.a ../lib/libflo-prng.a -lcrypto 

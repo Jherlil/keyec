@@ -1,2 +1,0 @@
-/usr/bin/ar qc ../lib/libflo-prng.a CMakeFiles/flo-prng.dir/flo-prng.c.o
-/usr/bin/ranlib ../lib/libflo-prng.a

@@ -1,1 +1,0 @@
-/usr/bin/c++  -Wall -Wextra -O3 -pedantic -rdynamic CMakeFiles/tests_sha256.dir/runTests.cpp.o CMakeFiles/tests_sha256.dir/test_sha256.cpp.o -o ../bin/tests_sha256  /usr/lib/x86_64-linux-gnu/libgtest.a -lcrypto ../lib/libflo-shani.a ../lib/libflo-prng.a -lpthread 

@@ -1,2 +1,0 @@
-/usr/bin/ar qc ../lib/libflo-shani.a CMakeFiles/flo-shani.dir/flo-shani.c.o CMakeFiles/flo-shani.dir/sha256_vectorized.c.o
-/usr/bin/ranlib ../lib/libflo-shani.a
