@@ -42,6 +42,10 @@ xoshiro256ss_filln(struct xoshiro256ss *rng, uint64_t *buf, size_t n);
 void
 xoshiro256ss_filln_f64n(struct xoshiro256ss *rng, double *buf, size_t n);
 
+#ifdef USE_OPENCL
+int xoshiro256ss_opencl_filln(struct xoshiro256ss *rng, uint64_t *buf, size_t n);
+#endif
+
 /*
  * TODO: implement this:
 

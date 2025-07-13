@@ -2,7 +2,8 @@
 
 CC = cc
 NASM = nasm
-CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
+CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra -DUSE_OPENCL
+LDLIBS ?= -lOpenCL
 
 ifeq ($(shell uname -m),x86_64)
         CC_FLAGS += -march=native -mavx2 -pthread -lpthread
@@ -17,8 +18,9 @@ build:
 	$(MAKE) clean
 	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o
 	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
-
+                     main.c xoshiro256ss-avx/xoshiro256ss.c lib/rmd160_opencl.c lib/ecc_opencl.c lib/addr_opencl.c lib/sha256_opencl.c lib/utils_opencl.c lib/xoshiro_opencl.c \
+                                xoshiro256ss-avx/xoshiro256ss.o $(LDLIBS) -o ecloop
+		
 xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
 	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
 

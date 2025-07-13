@@ -16,6 +16,9 @@
 #include <time.h>
 #include <unistd.h>
 #include "xoshiro256ss.h"
+#ifdef USE_OPENCL
+int xoshiro256ss_opencl_filln(struct xoshiro256ss *rng, uint64_t *buf, size_t n);
+#endif
 
 #ifdef _WIN32
   #include <windows.h>
@@ -94,8 +97,12 @@ void prng_seed(u64 seed) {
 
 INLINE u64 prng_next64() {
   if (xrng_idx >= XRNG_BUF_SIZE) {
-    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
-                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+#ifdef USE_OPENCL
+    if (!xoshiro256ss_opencl_filln(&xrng, (uint64_t *)xrng_buf,
+                                   XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH))
+#endif
+      xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
+                         XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
     xrng_idx = 0;
   }
   return xrng_buf[xrng_idx++];
@@ -103,8 +110,12 @@ INLINE u64 prng_next64() {
 
 void prng_next8(u64 out[8]) {
   if (xrng_idx + 8 > XRNG_BUF_SIZE) {
-    xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
-                       XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
+#ifdef USE_OPENCL
+    if (!xoshiro256ss_opencl_filln(&xrng, (uint64_t *)xrng_buf,
+                                   XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH))
+#endif
+      xoshiro256ss_filln(&xrng, (uint64_t *)xrng_buf,
+                         XRNG_BUF_SIZE / XOSHIRO256SS_WIDTH);
     xrng_idx = 0;
   }
   memcpy(out, &xrng_buf[xrng_idx], 8 * sizeof(u64));
@@ -311,6 +322,9 @@ typedef struct blf_t {
   size_t size;
   u64 *bits;
 } blf_t;
+#ifdef USE_OPENCL
+int blf_has_opencl_batch(uint8_t *out, blf_t *blf, const h160_t *hashes, size_t count);
+#endif
 
 static inline void blf_setbit(blf_t *blf, size_t idx) {
   blf->bits[idx % (blf->size * 64) / 64] |= (u64)1 << (idx % 64);
@@ -412,11 +426,17 @@ void blf_has4(uint8_t out[4], blf_t *blf, const h160_t *hashes) {
 }
 #else
 void blf_has4(uint8_t out[4], blf_t *blf, const h160_t *hashes) {
+#ifdef USE_OPENCL
+  if (blf_has_opencl_batch(out, blf, hashes, 4)) return;
+#endif
   for (int i = 0; i < 4; ++i) out[i] = blf_has(blf, hashes[i]);
 }
 #endif
 
 void blf_has8(uint8_t out[8], blf_t *blf, const h160_t *hashes) {
+#ifdef USE_OPENCL
+  if (blf_has_opencl_batch(out, blf, hashes, 8)) return;
+#endif
 #ifdef __AVX2__
   blf_has4(out, blf, hashes);
   blf_has4(out + 4, blf, hashes + 4);
