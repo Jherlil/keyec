@@ -95,8 +95,26 @@ void addr33_batch(h160_t *hashes, const pe *points, size_t count) {
   u8 msg[HASH_BATCH_SIZE][33] = {0}; // sha256 payload
   u32 rs[HASH_BATCH_SIZE][16] = {0}; // sha256 output and rmd160 input
 
-  for (size_t i = 0; i < count; ++i) prepare33(msg[i], points + i);
+  u8 *msg_ptr[HASH_BATCH_SIZE];
+  u8 *dig_ptr[HASH_BATCH_SIZE];
+
+  for (size_t i = 0; i < count; ++i) {
+    prepare33(msg[i], points + i);
+    msg_ptr[i] = msg[i];
+    dig_ptr[i] = (u8 *)rs[i];
+  }
+
+#if defined(NO_SIMD) || RMD_LEN == 1
   for (size_t i = 0; i < count; ++i) sha256_final(rs[i], msg[i], 33);
+#else
+  if (count == 8 && RMD_LEN >= 8) {
+    sha256_8w(msg_ptr, 33, dig_ptr);
+  } else if (count == 4 && RMD_LEN >= 4) {
+    sha256_4w(msg_ptr, 33, dig_ptr);
+  } else {
+    for (size_t i = 0; i < count; ++i) sha256_final(rs[i], msg[i], 33);
+  }
+#endif
 
   // for (size_t i = 0; i < count; ++i) prepare_rmd(rs[i]);
   for (size_t i = 0; i < count; ++i) {
@@ -112,8 +130,26 @@ void addr65_batch(h160_t *hashes, const pe *points, size_t count) {
   u8 msg[HASH_BATCH_SIZE][65] = {0}; // sha256 payload
   u32 rs[HASH_BATCH_SIZE][16] = {0};  // sha256 output and rmd160 input
 
-  for (size_t i = 0; i < count; ++i) prepare65(msg[i], points + i);
+  u8 *msg_ptr[HASH_BATCH_SIZE];
+  u8 *dig_ptr[HASH_BATCH_SIZE];
+
+  for (size_t i = 0; i < count; ++i) {
+    prepare65(msg[i], points + i);
+    msg_ptr[i] = msg[i];
+    dig_ptr[i] = (u8 *)rs[i];
+  }
+
+#if defined(NO_SIMD) || RMD_LEN == 1
   for (size_t i = 0; i < count; ++i) sha256_final(rs[i], msg[i], 65);
+#else
+  if (count == 8 && RMD_LEN >= 8) {
+    sha256_8w(msg_ptr, 65, dig_ptr);
+  } else if (count == 4 && RMD_LEN >= 4) {
+    sha256_4w(msg_ptr, 65, dig_ptr);
+  } else {
+    for (size_t i = 0; i < count; ++i) sha256_final(rs[i], msg[i], 65);
+  }
+#endif
 
   // for (size_t i = 0; i < count; ++i) prepare_rmd(rs[i]);
   for (size_t i = 0; i < count; ++i) {

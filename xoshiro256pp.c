@@ -87,3 +87,36 @@ void xoshiro256pp_next8(struct xoshiro256pp *rng, uint64_t out[8]) {
     }
 }
 
+uint64_t xoshiro256pp_next_u64(uint64_t s[4]) {
+    uint64_t result = ((s[0] + s[3]) << 23 | (s[0] + s[3]) >> (64 - 23)) + s[0];
+    uint64_t t = s[1] << 17;
+    s[2] ^= s[0];
+    s[3] ^= s[1];
+    s[1] ^= s[2];
+    s[0] ^= s[3];
+    s[2] ^= t;
+    s[3] = (s[3] << 45) | (s[3] >> (64 - 45));
+    return result;
+}
+
+void xoshiro256pp_jump(uint64_t s[4]) {
+    static const uint64_t JUMP[4] = {
+        0x180ec6d33cfd0abaULL, 0xd5a61266f0c9392cULL,
+        0xa9582618e03fc9aaULL, 0x39abdc4529b1661cULL};
+    uint64_t s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+    for (size_t i = 0; i < 4; i++)
+        for (size_t b = 0; b < 64; b++) {
+            if (JUMP[i] & (1ULL << b)) {
+                s0 ^= s[0];
+                s1 ^= s[1];
+                s2 ^= s[2];
+                s3 ^= s[3];
+            }
+            xoshiro256pp_next_u64(s);
+        }
+    s[0] = s0;
+    s[1] = s1;
+    s[2] = s2;
+    s[3] = s3;
+}
+

@@ -31,6 +31,13 @@ _\* On macOS, you may need to run `xcode-select --install` first._
 
 By default, `cc` is used as the compiler. Using `clang` may produce [faster code](https://github.com/vladkens/ecloop/issues/7) than `gcc`. You can explicitly specify the compiler for any `make` command using the `CC` parameter. For example: `make add CC=clang`.
 
+Vectorized hashing is enabled by default. To disable all SIMD optimizations (for
+older CPUs), pass `SIMD=0` when invoking `make`:
+
+```sh
+make build SIMD=0
+```
+
 Also, verify correctness with the following commands (some compiler versions may have issues with built-ins used in the code):
 
 ```sh

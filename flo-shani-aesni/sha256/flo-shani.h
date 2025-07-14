@@ -70,6 +70,8 @@ SHA_X2_CORE_DEF(update_shani_2x)
 SHA_X4_CORE_DEF(update_shani_4x)
 SHA_X8_CORE_DEF(update_shani_8x)
 
+void sha256_pclmul8(unsigned char *message[8], unsigned int length, unsigned char *digest[8]);
+
 extern const ALIGN uint32_t CONST_K[64];
 
 #define dec_sha256_vec_256b(NUM)  \

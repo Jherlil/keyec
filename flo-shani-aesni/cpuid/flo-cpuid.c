@@ -92,6 +92,20 @@ int hasSHANI() {
   return supports_capability(ebx, bit_SHA);
 }
 
+int hasAVX2() {
+  unsigned int eax, ebx, ecx, edx;
+  eax = 7; ebx = 0; ecx = 0; edx = 0;
+  my_cpuid(eax, ebx, ecx, edx);
+  return supports_capability(ebx, bit_AVX2);
+}
+
+int hasPCLMUL() {
+  unsigned int eax, ebx, ecx, edx;
+  eax = 1; ebx = 0; ecx = 0; edx = 0;
+  my_cpuid(eax, ebx, ecx, edx);
+  return supports_capability(ecx, bit_PCLMUL);
+}
+
 void disableSHANI() {
   if (OPENSSL_VERSION_NUMBER < 0x10002FFF) {
     extern unsigned long *OPENSSL_ia32cap_loc(void);

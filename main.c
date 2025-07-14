@@ -7,7 +7,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include <immintrin.h>
-#include "secp256k1.h"
+#include <stdint.h>
+#include "flo-cpuid.h"
 #include "xoshiro256plusplus.h"
 #include "sha256.h"
 #include "ripemd160.h"
@@ -119,7 +120,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
 
     pe_clone(&pts[0], &r);
     for (uint64_t j = 1; j < chunk; ++j) {
-      secp_point_add_G(&pts[j], &pts[j - 1]);
+      ec_jacobi_addrdc(&pts[j], &pts[j - 1], &G1);
     }
 
     addr33_batch(hashes, pts, chunk);
@@ -131,7 +132,7 @@ static void point_add_batch_avx2(struct ctx_t *ctx, pe *P,
       }
     }
 
-    secp_point_add_G(&r, &pts[chunk - 1]);
+    ec_jacobi_addrdc(&r, &pts[chunk - 1], &G1);
     start_k += chunk;
     batch_size -= chunk;
   }
@@ -611,21 +612,22 @@ void *cmd_mul_worker(void *arg) {
 
   fe pk[GROUP_INV_SIZE];
   pe cp[GROUP_INV_SIZE];
-  cmd_mul_job_t *job = NULL;
+  cmd_mul_job_t *local = malloc(sizeof(cmd_mul_job_t));
+  cmd_mul_job_t *job;
 
   while (true) {
-    if (job != NULL) free(job);
     job = queue_get(&ctx->queue);
     if (job == NULL) break;
+    memcpy(local, job, sizeof(cmd_mul_job_t));
+    free(job);
 
     // parse private keys from hex string
     if (!ctx->raw_text) {
-      for (size_t i = 0; i < job->count; ++i) fe_modn_from_hex(pk[i], job->lines[i]);
+      for (size_t i = 0; i < local->count; ++i) fe_modn_from_hex(pk[i], local->lines[i]);
     } else {
-      for (size_t i = 0; i < job->count; ++i) {
-        size_t len = strlen(job->lines[i]);
-        // calculate sha256 hash
-        sha256_final(res, (u8 *)job->lines[i], len);
+      for (size_t i = 0; i < local->count; ++i) {
+        size_t len = strlen(local->lines[i]);
+        sha256_final(res, (u8 *)local->lines[i], len);
 
         // debug log (do with `-t 1`)
         // printf("\n%zu %s\n", len, job->lines[i]);
@@ -640,13 +642,13 @@ void *cmd_mul_worker(void *arg) {
     }
 
     // compute public keys in batch
-    for (size_t i = 0; i < job->count; ++i) ec_mul_gen(&cp[i], pk[i]);
+    for (size_t i = 0; i < local->count; ++i) ec_mul_gen(&cp[i], pk[i]);
 
-    check_found_mul(ctx, pk, cp, job->count);
-    ctx_update(ctx, job->count);
+    check_found_mul(ctx, pk, cp, local->count);
+    ctx_update(ctx, local->count);
   }
 
-  if (job != NULL) free(job);
+  free(local);
   return NULL;
 }
 
@@ -1021,7 +1023,12 @@ void init(ctx_t *ctx, args_t *args) {
   arg_search_range(args, ctx->range_s, ctx->range_e);
   load_offs_size(ctx, args);
   queue_init(&ctx->queue, ctx->threads_count * 3);
-  secp_init();
+#ifndef NO_SIMD
+  if (!hasAVX2() || !hasSHANI() || !hasPCLMUL()) {
+    fprintf(stderr, "CPU lacks required SIMD instructions; build with SIMD=0 to disable\n");
+    exit(1);
+  }
+#endif
 
   if (!ctx->quiet) {
     printf("threads: %zu ~ addr33: %d ~ addr65: %d ~ endo: %d | filter: ", //
@@ -1086,6 +1093,5 @@ int main(int argc, const char **argv) {
   if (ctx.cmd == CMD_MUL) cmd_mul(&ctx);
   if (ctx.cmd == CMD_RND) cmd_rnd(&ctx);
   if (ctx.cmd == CMD_LOOP) cmd_loop(&ctx);
-  secp_cleanup();
   return 0;
 }
