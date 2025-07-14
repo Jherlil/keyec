@@ -21,10 +21,11 @@ int xoshiro256ss_opencl_filln(struct xoshiro256ss *rng, uint64_t *buf, size_t n)
 #endif
 
 #ifdef _WIN32
-  #include <windows.h>
+#include <windows.h>
+#include <bcrypt.h>
 #else
-  #include <fcntl.h>
-  #include <termios.h>
+#include <fcntl.h>
+#include <termios.h>
 #endif
 
 typedef char hex40[41]; // rmd160 hex string
@@ -74,7 +75,9 @@ char *strtrim(char *str) {
 }
 
 // MARK: random helpers
-
+#ifdef _WIN32
+static void _close_urandom(void) {}
+#else
 static FILE *_urandom = NULL;
 
 static void _close_urandom(void) {
@@ -83,6 +86,7 @@ static void _close_urandom(void) {
     _urandom = NULL;
   }
 }
+#endif
 
 // xoshiro256** PRNG state
 static struct xoshiro256ss xrng __attribute__((aligned(64)));
@@ -125,6 +129,15 @@ void prng_next8(u64 out[8]) {
 u64 _prand64() { return prng_next64(); }
 
 u64 _urand64() {
+#ifdef _WIN32
+  u64 r;
+  if (BCryptGenRandom(NULL, (PUCHAR)&r, sizeof(r),
+                      BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+    fprintf(stderr, "failed to obtain random bytes\n");
+    exit(1);
+  }
+  return r;
+#else
   if (_urandom == NULL) {
     _urandom = fopen("/dev/urandom", "rb");
     if (_urandom == NULL) {
@@ -142,6 +155,7 @@ u64 _urand64() {
   }
 
   return r;
+#endif
 }
 
 INLINE u64 rand64(bool urandom) { return urandom ? _urand64() : _prand64(); }

@@ -11,6 +11,7 @@ NASM_FMT ?= elf64
 ifeq ($(OS),Windows_NT)
     EXE := .exe
     NASM_FMT := win64
+    LDLIBS += -lbcrypt
 endif
 
 ifeq ($(shell uname -m),x86_64)
