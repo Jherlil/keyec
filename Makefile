@@ -1,26 +1,26 @@
 .PHONY: default clean build bench fmt add mul rnd blf remote
 
-CC = cc
-NASM = nasm
-CC_FLAGS ?= -O3 -funroll-loops -fomit-frame-pointer -ffast-math -Wall -Wextra
+# Compilador
+CC = clang
+
+# Flags agressivas otimizadas para Ryzen 7 5700X (Zen 3) usando clang
+CC_FLAGS ?= -O3 -ffast-math -Wall -Wextra \
+    -march=znver3 -mtune=znver3 \
+    -flto=full \
+    -mavx2 -mbmi2 -mfma -maes -mpopcnt -madx \
+    -fomit-frame-pointer -funroll-loops
 
 ifeq ($(shell uname -m),x86_64)
-        CC_FLAGS += -march=native -mavx2 -pthread -lpthread
+CC_FLAGS += -pthread -lpthread
 endif
 
 default: build
 
 clean:
-	@rm -rf ecloop bench main a.out *.profraw *.profdata xoshiro256ss-avx/*.o
+	@rm -rf ecloop bench main a.out *.profraw *.profdata
 
-build:
-	$(MAKE) clean
-	$(MAKE) xoshiro256ss-avx/xoshiro256ss.o
-	$(CC) $(CC_FLAGS) -DXOSHIRO256SS_TECH=1 -I./xoshiro256ss-avx \
-main.c xoshiro256ss-avx/xoshiro256ss.c xoshiro256ss-avx/xoshiro256ss.o -o ecloop
-
-xoshiro256ss-avx/xoshiro256ss.o: xoshiro256ss-avx/xoshiro256ss.s
-	$(NASM) -Ox -felf64 -DXOSHIRO256SS_TECH=1 -o $@ $<
+build: clean
+	$(CC) $(CC_FLAGS) main.c -o ecloop
 
 bench: build
 	./ecloop bench
